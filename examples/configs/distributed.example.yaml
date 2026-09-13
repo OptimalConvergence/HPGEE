@@ -1,11 +1,13 @@
 accounts:
   - name: primary
     workers: 8
+    proxy_url: ${GEE_PROXY_PRIMARY:-}
     auth:
       project: ${GEE_PROJECT}
       high_volume: true
   - name: secondary
     workers: 8
+    proxy_url: ${GEE_PROXY_SECONDARY:-}
     auth:
       project: ${GEE_PROJECT_SECONDARY}
       service_account: ${GEE_SERVICE_ACCOUNT_SECONDARY}
@@ -25,6 +27,7 @@ catalog:
   mode: read_through
   metadata_workers: 2
   metadata_cloud_max: 20
+  fallback_on_missing_metadata: true
   cloud: {mode: hybrid_probe, band: cs_cdf, threshold: 0.60, min_clear_fraction: 0.80}
 
 run:

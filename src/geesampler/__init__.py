@@ -14,7 +14,7 @@ from .resolver import CatalogResolverConfig, ResolverStats, S2CatalogResolver
 from .sampler import Sampler
 from .sources import EESampleSource, FileSampleSource
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "AccountProfile",

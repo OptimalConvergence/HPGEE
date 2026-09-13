@@ -23,3 +23,5 @@ def test_mtbs_post_id_date_and_pair_chronology():
 def test_mtbs_post_id_requires_a_date():
     with pytest.raises(ValueError):
         post_id_date("missing")
+    with pytest.raises(ValueError):
+        post_id_date("802403920189999")

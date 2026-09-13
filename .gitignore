@@ -11,6 +11,8 @@ dist/
 geesampler-output/
 artifacts/v0_3_live/
 artifacts/v0_3_rerun*/
+artifacts/v0_4_shared_route*/
+artifacts/v0_5*/
 *.partial
 *.sqlite
 *.tif

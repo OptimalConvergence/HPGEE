@@ -11,7 +11,7 @@ from ..models import SampleRecord
 from ..sources import EESampleSource
 
 MTBS_COLLECTION = "USFS/GTAC/MTBS/burned_area_boundaries/v1"
-_DATE = re.compile(r"((?:19|20)\d{6})")
+_DATE = re.compile(r"((?:19|20)\d{6})(?!\d)")
 
 
 def mtbs_source(
@@ -36,9 +36,12 @@ def mtbs_source(
 
 def post_id_date(post_id: str) -> datetime:
     matches = _DATE.findall(str(post_id))
-    if not matches:
-        raise ValueError(f"Cannot derive end-date proxy from MTBS Post_ID: {post_id!r}")
-    return datetime.strptime(matches[-1], "%Y%m%d").replace(tzinfo=timezone.utc)
+    for match in reversed(matches):
+        try:
+            return datetime.strptime(match, "%Y%m%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    raise ValueError(f"Cannot derive end-date proxy from MTBS Post_ID: {post_id!r}")
 
 
 def positive_pairs(events: Iterable[SampleRecord]) -> Iterator[SampleRecord]:

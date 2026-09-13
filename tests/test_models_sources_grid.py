@@ -87,6 +87,7 @@ catalog:
   enabled: true
   path: ./cache/s2.sqlite
   metadata_cloud_max: 12
+  fallback_on_missing_metadata: false
   cloud: {mode: metadata_only, threshold: 0.65}
 """,
         encoding="utf-8",
@@ -95,6 +96,7 @@ catalog:
     assert config.catalog is not None
     assert config.catalog.path.name == "s2.sqlite"
     assert config.catalog.resolver.metadata_cloud_max == 12
+    assert not config.catalog.resolver.fallback_on_missing_metadata
     assert config.catalog.resolver.cloud_mode == "metadata_only"
     assert config.catalog.resolver.qa_threshold == 0.65
 
@@ -109,9 +111,11 @@ accounts:
   - name: first
     auth: {project: "${ACCOUNT_ONE_PROJECT}", high_volume: true}
     workers: 8
+    proxy_url: http://127.0.0.1:7893
   - name: second
     auth: {project: "${ACCOUNT_TWO_PROJECT}", high_volume: true}
     workers: 8
+proxy_url: http://127.0.0.1:7890
 distributed:
   max_inflight_per_project: 16
 run:
@@ -125,6 +129,8 @@ run:
     assert config.distributed.max_inflight_per_project == 16
     assert [account.name for account in config.accounts] == ["first", "second"]
     assert config.auth == config.accounts[0].auth
+    assert config.accounts[0].proxy_url == "http://127.0.0.1:7893"
+    assert config.accounts[1].proxy_url == "http://127.0.0.1:7890"
 
 
 def test_distributed_config_requires_two_enabled_accounts(tmp_path):

@@ -16,6 +16,7 @@ from typing import Any, Literal
 from .catalog import S2SceneCatalog, SceneRecord
 from .grid import ComputedGrid, compute_grid
 from .models import PatchGrid, SampleRecord, SceneSelection
+from .retry import is_transient
 
 LOGGER = logging.getLogger(__name__)
 S2_COLLECTION = "COPERNICUS/S2_SR_HARMONIZED"
@@ -39,6 +40,7 @@ class CatalogResolverConfig:
     qa_threshold: float = 0.60
     min_clear_fraction: float = 0.80
     group_downloads: bool = True
+    fallback_on_missing_metadata: bool = True
 
     def __post_init__(self) -> None:
         if self.mode not in {"read_through", "offline", "refresh"}:
@@ -68,6 +70,7 @@ class ResolverStats:
     lookup_seconds: float = 0.0
     quality_cache_hits: int = 0
     quality_rejections: int = 0
+    metadata_fallbacks: int = 0
 
     @property
     def catalog_hit_rate(self) -> float:
@@ -175,6 +178,7 @@ class S2CatalogResolver:
         self._tiles: dict[str, set[str]] = {}
         self._bboxes: dict[str, tuple[float, float, float, float]] = {}
         self._quality: dict[tuple[str, str], tuple[float, bool] | None] = {}
+        self._missing_metadata: set[str] = set()
         self._stats = ResolverStats()
         self._lock = threading.Lock()
 
@@ -253,6 +257,7 @@ class S2CatalogResolver:
         self._tiles.clear()
         self._bboxes.clear()
         self._quality.clear()
+        self._missing_metadata.clear()
         requested: dict[tuple[int, int], set[str]] = defaultdict(set)
         for sample in samples:
             computed = compute_grid(sample.geometry, grid)
@@ -302,15 +307,31 @@ class S2CatalogResolver:
         lookup_started = time.monotonic()
         for sample in samples:
             start, end = self._requested_interval(sample, selection)
-            candidates = self.catalog.query(
+            catalog_scenes = self.catalog.query(
                 collection=self.collection,
                 tiles=self._tiles[sample.sample_id],
                 start=start,
                 end=end,
-                max_cloud_percentage=self.config.metadata_cloud_max,
+                max_cloud_percentage=None,
                 bbox=self._bboxes[sample.sample_id],
             )
-            candidates = self._rank(candidates, sample.date, selection.mode)
+            if not catalog_scenes:
+                self._missing_metadata.add(sample.sample_id)
+            known = [
+                scene
+                for scene in catalog_scenes
+                if scene.cloud_percentage is not None
+                and scene.cloud_percentage <= self.config.metadata_cloud_max
+            ]
+            unknown = (
+                [scene for scene in catalog_scenes if scene.cloud_percentage is None]
+                if self.config.fallback_on_missing_metadata
+                else []
+            )
+            candidates = [
+                *self._rank(known, sample.date, selection.mode),
+                *self._rank(unknown, sample.date, selection.mode),
+            ]
             if self.cloud_masking:
                 retained: list[SceneRecord] = []
                 grid_hash = self.grid_hash(sample)
@@ -344,8 +365,8 @@ class S2CatalogResolver:
                     )
                 )
                 break
-            except Exception:
-                if attempt >= self.config.metadata_retries:
+            except Exception as error:
+                if attempt >= self.config.metadata_retries or not is_transient(error):
                     self._add_stats(metadata_seconds=time.monotonic() - started)
                     raise
                 delay = self.config.retry_base_seconds * (2**attempt)
@@ -448,6 +469,16 @@ class S2CatalogResolver:
 
     def candidates(self, sample: SampleRecord) -> list[SceneRecord]:
         return list(self._plans.get(sample.sample_id, ()))
+
+    def should_fallback_without_metadata(self, sample: SampleRecord) -> bool:
+        return (
+            self.config.fallback_on_missing_metadata
+            and self.config.cloud_mode == "metadata_only"
+            and sample.sample_id in self._missing_metadata
+        )
+
+    def record_metadata_fallback(self) -> None:
+        self._add_stats(metadata_fallbacks=1)
 
     def order_samples(self, samples: Sequence[SampleRecord]) -> list[SampleRecord]:
         if not self.config.group_downloads:

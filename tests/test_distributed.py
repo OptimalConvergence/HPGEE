@@ -1,18 +1,22 @@
 from pathlib import Path
 
+from geesampler import distributed
 from geesampler.config import AccountProfile, DistributedRunConfig, SamplerConfig
 from geesampler.distributed import (
     DistributedSampler,
     ProfileOutcome,
+    _profile_entry,
     assign_records,
     effective_workers,
 )
 from geesampler.models import (
     AuthConfig,
     EECUMonitorConfig,
+    PatchGrid,
     RunConfig,
     RunSummary,
     SampleRecord,
+    SceneSelection,
     TaskResult,
 )
 
@@ -91,3 +95,59 @@ def test_same_project_eecu_is_not_double_counted(tmp_path):
     assert aggregate.succeeded == 2
     assert aggregate.completed_eecu_seconds == 7
     assert aggregate.retained_bytes == 18
+
+
+def test_profile_entry_uses_sticky_profile_proxy(tmp_path, monkeypatch):
+    captured = {}
+
+    class FakeSampler:
+        def __init__(self, config):
+            captured["proxy_url"] = config.proxy_url
+
+        def download_patch_series(self, records, builder, **kwargs):
+            del records, builder, kwargs
+            return RunSummary("run", "tag", 1, 1, 0, 0, 1, 1, 1, 1)
+
+    class Queue:
+        def __init__(self):
+            self.items = []
+
+        def put(self, item):
+            self.items.append(item)
+
+    monkeypatch.setattr(distributed, "Sampler", FakeSampler)
+    monkeypatch.setattr(distributed, "load_callable", lambda _path: lambda _sample: None)
+    profile = AccountProfile(
+        "first",
+        AuthConfig("project-x"),
+        workers=1,
+        proxy_url="http://127.0.0.1:7893",
+    )
+    base = SamplerConfig(
+        profile.auth,
+        RunConfig(tmp_path, eecu=EECUMonitorConfig(enabled=False)),
+        "http://127.0.0.1:7890",
+        {},
+    )
+    output = Queue()
+    _profile_entry(
+        output,
+        profile,
+        1,
+        base,
+        [SampleRecord("a", {"type": "Point", "coordinates": [0, 0]})],
+        "module:builder",
+        {},
+        ("B2",),
+        "patch",
+        PatchGrid(),
+        10,
+        SceneSelection(),
+        None,
+        "scenario",
+        "run",
+        tmp_path,
+    )
+
+    assert captured["proxy_url"] == "http://127.0.0.1:7893"
+    assert output.items[0].fatal_error is None

@@ -52,11 +52,13 @@ load, and retries transient worker failures on a healthy profile:
 accounts:
   - name: primary
     workers: 8
+    proxy_url: ${GEE_PROXY_PRIMARY:-}
     auth:
       project: ${GEE_PROJECT}
       high_volume: true
   - name: secondary
     workers: 8
+    proxy_url: ${GEE_PROXY_SECONDARY:-}
     auth:
       project: ${GEE_PROJECT_SECONDARY}
       service_account: ${GEE_SERVICE_ACCOUNT_SECONDARY}
@@ -72,7 +74,11 @@ distributed:
 See `examples/configs/distributed.example.yaml` for a runnable template. Profile
 names—not account identifiers—are written to aggregate metrics. Credentials stay
 outside run artifacts, error messages redact credential-shaped values, and each
-process has its own authenticated client and HTTP connection pool.
+process has its own authenticated client and HTTP connection pool. A profile-level
+`proxy_url` overrides the global proxy for that process and stays fixed for the
+run, preserving TCP/TLS connection reuse. Leave it empty to inherit the global
+proxy. Prefer one persistent route per account or spatial/temporal batch; rotating
+the proxy per request discards pooled connections and usually increases latency.
 
 This feature is for legitimate workload isolation and reliability. It does not
 increase quota when profiles share a Cloud project: project quotas and EECU are
@@ -160,6 +166,7 @@ catalog:
   query_window_days: 366
   max_tiles_per_query: 8
   metadata_cloud_max: 20
+  fallback_on_missing_metadata: true
   cloud:
     mode: hybrid_inline
     band: cs_cdf
@@ -171,7 +178,11 @@ catalog:
 window, upserts it transactionally, and performs later date/geometry searches
 locally. Historical coverage remains cached; the most recent 30 days are checked
 again after 24 hours. Use `offline` to forbid catalog network fills or `refresh`
-for an explicit refresh.
+for an explicit refresh. With `fallback_on_missing_metadata: true`, scenes whose
+cloud percentage is absent remain eligible after known-qualified scenes. In
+`metadata_only` mode, a completely empty catalog lookup also attempts the ordered
+Earth Engine collection directly. Known cloudy scenes and cached quality
+rejections are never reintroduced by this fallback.
 
 ```bash
 geesampler catalog sync examples/configs/prepared_points.yaml
@@ -319,3 +330,9 @@ python -m build
 
 Live tests require an authorized GEE project and are kept separate from the
 offline unit suite.
+
+## Global metadata and operational reporting
+
+Scan S2, Landsat C2 Tier-1 Level-2, HLS, VIIRS and GEDI metadata incrementally with `geesampler metadata sync`; inspect checkpoints with `geesampler metadata status`. `geesampler metadata grids` downloads and indexes official WRS-2/MGRS reference grids. The scanner commits each page atomically, preserves resume state, and makes fully enumerated global windows available to catalog lookups. It does not download image pixels.
+
+`geesampler progress METRICS.jsonl --minutes 30` reports completed-image throughput without counting cache reuse as new traffic. Sampling now detects a worker count exceeding the initialized HTTP connection pool; bounded metadata retries distinguish transport interruptions from terminal errors. See [global metadata and performance guidance](docs/global-metadata.md) for commands, collection aliases, date-boundary semantics, schema compatibility and limitations.

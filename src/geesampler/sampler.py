@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,7 @@ class Sampler:
             if initialize
             else None
         )
+        self._transport_pool_size = config.run.workers
         self._catalog_resolver: S2CatalogResolver | None = None
 
     @classmethod
@@ -37,6 +38,11 @@ class Sampler:
         return cls(SamplerConfig.from_yaml(path), initialize=initialize)
 
     def _engine(self) -> DownloadEngine:
+        if self.config.run.workers > self._transport_pool_size:
+            raise ValueError(
+                "Worker count exceeds the initialized HTTP pool; construct a new Sampler "
+                "with the larger worker count before starting the next run"
+            )
         return DownloadEngine(
             self.config.auth.project,
             self.config.run,
@@ -63,6 +69,7 @@ class Sampler:
         *,
         bands: Sequence[str],
         grid: PatchGrid = DEFAULT_PATCH_GRID,
+        grid_builder: Callable[[SampleRecord, PatchGrid], Mapping[str, Any]] | None = None,
         selection: SceneSelection = DEFAULT_SCENE_SELECTION,
         mask_builder: MaskBuilder | None = None,
         scene_resolver: Any | None = None,
@@ -74,6 +81,7 @@ class Sampler:
             collection_builder,
             bands=bands,
             grid=grid,
+            grid_builder=grid_builder,
             selection=selection,
             mask_builder=mask_builder,
             scene_resolver=scene_resolver if scene_resolver is not None else self.scene_resolver(),

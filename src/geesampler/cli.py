@@ -152,12 +152,51 @@ def main(argv: list[str] | None = None) -> int:
     catalog_import.add_argument("directory")
     catalog_import.add_argument("--start", required=True)
     catalog_import.add_argument("--end", required=True)
+    metadata = subparsers.add_parser("metadata", help="Incrementally scan global image metadata")
+    metadata_commands = metadata.add_subparsers(dest="metadata_command", required=True)
+    metadata_sync = metadata_commands.add_parser("sync", help="Scan half-open UTC date intervals")
+    metadata_sync.add_argument("config")
+    metadata_sync.add_argument("collection")
+    metadata_sync.add_argument("start")
+    metadata_sync.add_argument("end")
+    metadata_sync.add_argument("--database", required=True)
+    metadata_sync.add_argument("--workers", type=int, default=2)
+    metadata_sync.add_argument("--chunk-days", type=int, default=31)
+    metadata_sync.add_argument("--page-size", type=int, default=1000)
+    metadata_status = metadata_commands.add_parser("status", help="Read metadata scan checkpoints")
+    metadata_status.add_argument("database")
+    progress = subparsers.add_parser("progress", help="Summarize completed image throughput from metrics files")
+    progress.add_argument("metrics", nargs="+")
+    progress.add_argument("--minutes", type=float, default=30)
+    grids = metadata_commands.add_parser("grids", help="Download and index official WRS-2/MGRS grids")
+    grids.add_argument("directory")
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper()),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    if args.command == "run":
+    if args.command == "metadata":
+        from .metadata import MetadataScanner, scan_status
+        if args.metadata_command == "grids":
+            from .metadata_grids import build_grids
+            print(json.dumps(build_grids(args.directory), indent=2))
+        elif args.metadata_command == "status":
+            print(json.dumps(scan_status(args.database), indent=2))
+        else:
+            from .auth import configure_proxy, initialize_earth_engine
+            config = SamplerConfig.from_yaml(args.config)
+            configure_proxy(config.proxy_url)
+            ee = initialize_earth_engine(config.auth, pool_size=args.workers, timeout=120)
+            scanner = MetadataScanner(S2SceneCatalog(args.database), ee)
+            print(json.dumps(scanner.sync(args.collection, args.start, args.end,
+                             workers=args.workers, chunk_days=args.chunk_days,
+                             page_size=args.page_size), indent=2))
+    elif args.command == "progress":
+        from datetime import timedelta
+        from .progress import summarize_metrics
+        end = datetime.now(timezone.utc)
+        print(json.dumps(summarize_metrics(args.metrics, end-timedelta(minutes=args.minutes), end), indent=2))
+    elif args.command == "run":
         print(json.dumps(run_config(args.config), indent=2, sort_keys=True))
     elif args.command == "validate":
         print(plot_sample_pair(args.image, args.output, mask_path=args.mask))

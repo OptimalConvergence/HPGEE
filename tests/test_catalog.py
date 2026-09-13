@@ -194,6 +194,88 @@ def test_resolver_retries_metadata_without_marking_partial_coverage(tmp_path):
     assert resolver.candidates(sample)
 
 
+def test_metadata_only_falls_back_only_when_catalog_metadata_is_missing(tmp_path):
+    catalog = S2SceneCatalog(tmp_path / "s2.sqlite")
+    sample = SampleRecord(
+        "sample",
+        {"type": "Point", "coordinates": [0, 0]},
+        datetime(2020, 7, 1, tzinfo=timezone.utc),
+    )
+    config = CatalogResolverConfig(
+        mode="offline",
+        recent_horizon_days=0,
+        cloud_mode="metadata_only",
+        fallback_on_missing_metadata=True,
+    )
+    locate = lambda _grid: ({"31TCJ"}, (-1, -1, 1, 1))
+
+    missing = S2CatalogResolver(
+        catalog,
+        ee_module=object(),
+        config=config,
+        tile_locator=locate,
+    )
+    missing.prepare([sample], grid=PatchGrid(), selection=SceneSelection(), workload_tag="tag")
+    assert missing.candidates(sample) == []
+    assert missing.should_fallback_without_metadata(sample)
+
+    start = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2021, 1, 1, tzinfo=timezone.utc)
+    catalog.upsert_and_mark_coverage(
+        [_scene("collection/cloudy", 1_593_561_600_000, 90)],
+        collection=COLLECTION,
+        tiles={"31TCJ"},
+        start=start,
+        end=end,
+    )
+    known_cloudy = S2CatalogResolver(
+        catalog,
+        ee_module=object(),
+        config=config,
+        tile_locator=locate,
+    )
+    known_cloudy.prepare(
+        [sample], grid=PatchGrid(), selection=SceneSelection(), workload_tag="tag"
+    )
+    assert known_cloudy.candidates(sample) == []
+    assert not known_cloudy.should_fallback_without_metadata(sample)
+
+
+def test_missing_cloud_percentage_is_kept_after_known_qualified_scenes(tmp_path):
+    catalog = S2SceneCatalog(tmp_path / "s2.sqlite")
+    start = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2021, 1, 1, tzinfo=timezone.utc)
+    catalog.upsert_and_mark_coverage(
+        [
+            _scene("collection/known", 1_593_561_600_000, 5),
+            _scene("collection/unknown", 1_593_648_000_000, None),
+        ],
+        collection=COLLECTION,
+        tiles={"31TCJ"},
+        start=start,
+        end=end,
+    )
+    sample = SampleRecord(
+        "sample",
+        {"type": "Point", "coordinates": [0, 0]},
+        datetime(2020, 7, 1, tzinfo=timezone.utc),
+    )
+    resolver = S2CatalogResolver(
+        catalog,
+        ee_module=object(),
+        config=CatalogResolverConfig(
+            mode="offline",
+            recent_horizon_days=0,
+            cloud_mode="metadata_only",
+            fallback_on_missing_metadata=True,
+        ),
+        tile_locator=lambda _grid: ({"31TCJ"}, (-1, -1, 1, 1)),
+    )
+    resolver.prepare([sample], grid=PatchGrid(), selection=SceneSelection(), workload_tag="tag")
+
+    assert [scene.scene_id for scene in resolver.candidates(sample)] == ["known", "unknown"]
+
+
 def test_hybrid_probe_reuses_cached_quality_decision(tmp_path):
     catalog = S2SceneCatalog(tmp_path / "s2.sqlite")
     sample = SampleRecord(

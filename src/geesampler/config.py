@@ -57,6 +57,7 @@ class AccountProfile:
     auth: AuthConfig
     workers: int = 8
     enabled: bool = True
+    proxy_url: str | None = None
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", self.name):
@@ -108,6 +109,7 @@ class SamplerConfig:
 
         account_data = payload.get("accounts", [])
         auth_data = payload.get("auth", {})
+        global_proxy = payload.get("proxy_url") or None
         if account_data:
             accounts = tuple(
                 AccountProfile(
@@ -115,6 +117,7 @@ class SamplerConfig:
                     auth=parse_auth(item.get("auth", {}), f"accounts[{index}].auth"),
                     workers=int(item.get("workers", 8)),
                     enabled=bool(item.get("enabled", True)),
+                    proxy_url=item.get("proxy_url") or global_proxy,
                 )
                 for index, item in enumerate(account_data)
             )
@@ -181,9 +184,12 @@ class SamplerConfig:
                     qa_threshold=float(cloud_data.get("threshold", 0.60)),
                     min_clear_fraction=float(cloud_data.get("min_clear_fraction", 0.80)),
                     group_downloads=bool(catalog_data.get("group_downloads", True)),
+                    fallback_on_missing_metadata=bool(
+                        catalog_data.get("fallback_on_missing_metadata", True)
+                    ),
                 ),
             )
-        return cls(auth, run, payload.get("proxy_url"), payload, catalog, accounts, distributed)
+        return cls(auth, run, global_proxy, payload, catalog, accounts, distributed)
 
 
 def patch_settings(payload: Mapping[str, Any]) -> tuple[PatchGrid, SceneSelection]:

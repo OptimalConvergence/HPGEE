@@ -124,6 +124,43 @@ def test_patch_request_grid_tag_manifest_and_resume(tmp_path):
     assert len(fake.data.requests) == 1
 
 
+def test_patch_request_accepts_per_sample_grid_builder(tmp_path):
+    fake = FakeEE()
+    engine = StubEngine(
+        "project",
+        RunConfig(tmp_path, workers=1, retries=0, eecu=EECUMonitorConfig(enabled=False)),
+        ee_module=fake,
+    )
+    sample = SampleRecord(
+        "native-grid",
+        {"type": "Point", "coordinates": [-114.3, 47.5]},
+        datetime(2019, 7, 1, tzinfo=timezone.utc),
+    )
+    native_grid = {
+        "dimensions": {"width": 86, "height": 86},
+        "affineTransform": {
+            "scaleX": 30,
+            "shearX": 0,
+            "translateX": -1150000,
+            "shearY": 0,
+            "scaleY": -30,
+            "translateY": 2200000,
+        },
+        "crsCode": "EPSG:5070",
+    }
+    summary = engine.download_patch_series(
+        [sample],
+        lambda _sample: object(),
+        bands=["Severity"],
+        grid=PatchGrid(86, 30),
+        grid_builder=lambda _sample, _spec: native_grid,
+        scenario="test",
+        run_id="native-grid",
+    )
+    assert summary.succeeded == 1
+    assert fake.data.requests[0]["grid"] == native_grid
+
+
 def test_scheduler_stops_new_samples_at_eecu_ceiling(tmp_path):
     fake = FakeEE()
     config = RunConfig(
@@ -188,6 +225,26 @@ class ResolvedCollection:
 
     def first(self):
         return ResolvedImage()
+
+
+class MetadataMissingCollection(ResolvedCollection):
+    def __init__(self):
+        self.items = [ResolvedImage()]
+
+    def filterDate(self, _start, _end):
+        return self
+
+    def map(self, _function):
+        return self
+
+    def sort(self, *_args):
+        return self
+
+    def limit(self, _limit):
+        return self
+
+    def toList(self, _limit):
+        return FakeList(self.items)
 
 
 class ResolvedFilter:
@@ -348,6 +405,50 @@ class MetadataResolver(ResolvedResolver):
     cloud_masking = False
 
 
+class MissingMetadataResolver(MetadataResolver):
+    def __init__(self):
+        super().__init__()
+        self._candidates = []
+        self.fallbacks = 0
+
+    @staticmethod
+    def should_fallback_without_metadata(_sample):
+        return True
+
+    def record_metadata_fallback(self):
+        self.fallbacks += 1
+
+
+def test_empty_catalog_plan_downloads_first_image_without_scene_metadata(tmp_path):
+    fake = ResolvedEE()
+    fake.data.payloads = [_single_band_tiff(True)]
+    resolver = MissingMetadataResolver()
+    engine = DownloadEngine(
+        "project",
+        RunConfig(tmp_path, workers=1, retries=0, eecu=EECUMonitorConfig(enabled=False)),
+        ee_module=fake,
+    )
+    sample = SampleRecord(
+        "sample-1",
+        {"type": "Point", "coordinates": [3, 45]},
+        datetime(2021, 7, 1, tzinfo=timezone.utc),
+    )
+
+    summary = engine.download_patch_series(
+        [sample],
+        lambda _sample: MetadataMissingCollection(),
+        bands=["B2"],
+        grid=PatchGrid(4, 10),
+        scene_resolver=resolver,
+        run_id="missing-metadata",
+    )
+
+    assert summary.succeeded == 1
+    assert summary.results[0].scene_id == "metadata-missing-000"
+    assert len(fake.data.requests) == 1
+    assert resolver.fallbacks == 1
+
+
 def test_hybrid_probe_rejects_with_one_band_before_full_download(tmp_path):
     fake = ResolvedEE()
     rejected = _single_band_tiff(False)
@@ -418,6 +519,45 @@ def test_missing_preprocessed_candidate_falls_back_to_next_scene(tmp_path):
         scene_resolver=resolver,
         run_id="fallback",
     )
+    assert summary.succeeded == 1
+    assert len(fake.data.requests) == 2
+    assert summary.results[0].scene_id == "scene-b"
+    assert summary.results[0].attempts == 2
+
+
+def test_list_empty_candidate_falls_back_without_retrying_same_scene(tmp_path):
+    fake = ResolvedEE()
+
+    class ListEmptyData:
+        def __init__(self):
+            self.requests = []
+
+        def computePixels(self, request):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                raise ValueError("List.get: List is empty (index is 0).")
+            return _single_band_tiff(True)
+
+    fake.data = ListEmptyData()
+    engine = DownloadEngine(
+        "project",
+        RunConfig(tmp_path, workers=1, retries=4, eecu=EECUMonitorConfig(enabled=False)),
+        ee_module=fake,
+    )
+    sample = SampleRecord(
+        "sample-1",
+        {"type": "Point", "coordinates": [3, 45]},
+        datetime(2021, 7, 1, tzinfo=timezone.utc),
+    )
+    summary = engine.download_patch_series(
+        [sample],
+        lambda _sample: ResolvedCollection(),
+        bands=["B2"],
+        grid=PatchGrid(4, 10),
+        scene_resolver=MetadataResolver(),
+        run_id="list-empty-fallback",
+    )
+
     assert summary.succeeded == 1
     assert len(fake.data.requests) == 2
     assert summary.results[0].scene_id == "scene-b"

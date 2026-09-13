@@ -263,7 +263,7 @@ class S2SceneCatalog:
         start_millis, end_millis = _utc_millis(start), _utc_millis(end)
         query = """
             SELECT start_millis, end_millis FROM coverage
-            WHERE collection=? AND mgrs_tile=? AND end_millis>? AND start_millis<?
+            WHERE collection=? AND (mgrs_tile=? OR mgrs_tile='*') AND end_millis>? AND start_millis<?
         """
         parameters: list[Any] = [collection, tile, start_millis, end_millis]
         if fetched_after is not None:
@@ -351,6 +351,23 @@ class S2SceneCatalog:
                     )
                 )
         return result
+
+    def overlapping_tiles(self, collection: str, bbox: tuple[float, float, float, float]) -> set[str]:
+        """Find native grid keys from the spatial shortlist, without a scene-table scan.
+
+        Bounding boxes are conservative; exact geometry intersection remains a
+        caller responsibility, especially for footprints crossing the dateline.
+        """
+        left, bottom, right, top = bbox
+        if right < left:
+            return self.overlapping_tiles(collection, (left, bottom, 180, top)) | self.overlapping_tiles(collection, (-180, bottom, right, top))
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT s.mgrs_tile FROM scene_rtree r CROSS JOIN scenes s ON s.id=r.id "
+                "WHERE r.minx<=? AND r.maxx>=? AND r.miny<=? AND r.maxy>=? AND s.collection=?",
+                (right, left, top, bottom, collection),
+            ).fetchall()
+        return {row[0] for row in rows}
 
     def quality(
         self,

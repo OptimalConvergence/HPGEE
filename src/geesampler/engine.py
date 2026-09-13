@@ -36,7 +36,10 @@ from .monitoring import CloudEECUReader, EECUMonitor
 LOGGER = logging.getLogger(__name__)
 _SERVICE_ACCOUNT_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.gserviceaccount\.com")
 _BEARER_TOKEN = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*")
-_MISSING_IMAGE_ERROR = "Parameter 'input' is required and may not be null"
+_MISSING_IMAGE_ERRORS = (
+    "Parameter 'input' is required and may not be null",
+    "List.get: List is empty",
+)
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,11 @@ def redact_error(value: object) -> str:
         flags=re.DOTALL,
     )
     return text
+
+
+def _is_missing_image_error(value: object) -> bool:
+    message = str(value)
+    return any(marker in message for marker in _MISSING_IMAGE_ERRORS)
 
 
 def make_workload_tag(prefix: str, scenario: str, run_id: str) -> str:
@@ -189,6 +197,7 @@ class DownloadEngine:
         *,
         bands: Sequence[str],
         grid: PatchGrid = DEFAULT_PATCH_GRID,
+        grid_builder: Callable[[SampleRecord, PatchGrid], Mapping[str, Any]] | None = None,
         selection: SceneSelection = DEFAULT_SCENE_SELECTION,
         mask_builder: MaskBuilder | None = None,
         scene_resolver: Any | None = None,
@@ -217,6 +226,7 @@ class DownloadEngine:
                 collection_builder,
                 tuple(bands),
                 grid,
+                grid_builder,
                 selection,
                 mask_builder,
                 scene_resolver,
@@ -464,11 +474,12 @@ class DownloadEngine:
         collection_builder: CollectionBuilder,
         bands: tuple[str, ...],
         grid_spec: PatchGrid,
+        grid_builder: Callable[[SampleRecord, PatchGrid], Mapping[str, Any]] | None,
         selection: SceneSelection,
         mask_builder: MaskBuilder | None,
         scene_resolver: Any | None,
+        skip_metadata_lookup: bool = False,
     ) -> list[TaskResult]:
-        started = time.monotonic()
         if sample.date is None:
             raise ValueError(f"Patch sample {sample.sample_id} has no target date")
         collection_started = time.monotonic()
@@ -483,26 +494,26 @@ class DownloadEngine:
                 collection,
                 bands,
                 grid_spec,
+                grid_builder,
                 selection,
                 mask_builder,
                 scene_resolver,
                 collection_seconds,
             )
         selection_started = time.monotonic()
-        selected, metadata = self._select_scenes(collection, sample.date, selection, workload_tag)
+        if skip_metadata_lookup:
+            selected = self._order_scenes(collection, sample.date, selection)
+            metadata: list[Mapping[str, Any]] = []
+        else:
+            selected, metadata = self._select_scenes(
+                collection, sample.date, selection, workload_tag
+            )
         selection_seconds = time.monotonic() - selection_started
-        if not metadata:
-            return [
-                TaskResult(
-                    task_id=f"{_safe_name(sample.sample_id)}-no-scene",
-                    sample_id=sample.sample_id,
-                    status="failed",
-                    output_path=None,
-                    bytes_downloaded=0,
-                    elapsed_seconds=time.monotonic() - started,
-                    attempts=1,
-                    error="No qualifying scenes",
-                )
+        metadata_missing = not metadata
+        if metadata_missing:
+            metadata = [
+                {"scene_id": f"metadata-missing-{index:03d}"}
+                for index in range(selection.max_scenes)
             ]
         results: list[TaskResult] = []
         image_list = selected.toList(selection.max_scenes)
@@ -544,13 +555,17 @@ class DownloadEngine:
                 mask = self.ee.Image(mask_builder(sample)).rename("sample_mask").unmask(0).uint8()
                 image = image.addBands(mask)
                 request_bands.append("sample_mask")
-            grid = compute_grid(sample.geometry, grid_spec)
+            grid = (
+                grid_builder(sample, grid_spec)
+                if grid_builder is not None
+                else compute_grid(sample.geometry, grid_spec).to_ee()
+            )
             result = self._download_pixels(
                 task_id,
                 sample.sample_id,
                 image,
                 request_bands,
-                grid.to_ee(),
+                grid,
                 workload_tag,
                 output,
                 mask_path if has_mask else None,
@@ -562,7 +577,13 @@ class DownloadEngine:
                     "scene_selection": selection_seconds,
                 },
             )
+            if metadata_missing and _is_missing_image_error(result.error):
+                if not results:
+                    results.append(replace(result, error="No qualifying scenes"))
+                break
             results.append(result)
+            if metadata_missing and result.status != "success":
+                break
         return results
 
     def _patch_worker_resolved(
@@ -574,6 +595,7 @@ class DownloadEngine:
         collection: Any,
         bands: tuple[str, ...],
         grid_spec: PatchGrid,
+        grid_builder: Callable[[SampleRecord, PatchGrid], Mapping[str, Any]] | None,
         selection: SceneSelection,
         mask_builder: MaskBuilder | None,
         scene_resolver: Any,
@@ -581,6 +603,25 @@ class DownloadEngine:
     ) -> list[TaskResult]:
         candidates: list[SceneRecord] = scene_resolver.candidates(sample)
         if not candidates:
+            should_fallback = getattr(
+                scene_resolver, "should_fallback_without_metadata", lambda _sample: False
+            )
+            if should_fallback(sample):
+                scene_resolver.record_metadata_fallback()
+                return self._patch_worker(
+                    sample,
+                    workload_tag,
+                    ledger,
+                    run_dir,
+                    lambda _sample: collection,
+                    bands,
+                    grid_spec,
+                    grid_builder,
+                    selection,
+                    mask_builder,
+                    None,
+                    True,
+                )
             return [
                 TaskResult(
                     task_id=f"{_safe_name(sample.sample_id)}-no-scene",
@@ -599,10 +640,18 @@ class DownloadEngine:
         rejected_seconds = 0.0
         rejected_attempts = 0
         accepted = 0
-        computed_grid = compute_grid(sample.geometry, grid_spec)
+        computed_grid = (
+            grid_builder(sample, grid_spec)
+            if grid_builder is not None
+            else compute_grid(sample.geometry, grid_spec).to_ee()
+        )
         for scene in candidates:
             if accepted >= selection.max_scenes:
                 break
+            if scene.cloud_percentage is None:
+                record_fallback = getattr(scene_resolver, "record_metadata_fallback", None)
+                if record_fallback is not None:
+                    record_fallback()
             scene_date = scene.acquired_at.isoformat()
             task_id = f"{_safe_name(sample.sample_id)}-{_safe_name(scene.scene_id)}"
             output = (
@@ -659,7 +708,7 @@ class DownloadEngine:
             if getattr(scene_resolver, "probe_quality", False) and cached_quality is None:
                 probe = self._probe_quality(
                     scene_resolver.quality_image(raw_image),
-                    computed_grid.to_ee(),
+                    computed_grid,
                     workload_tag,
                     scene_resolver.internal_quality_band,
                     scene_resolver.min_clear_fraction,
@@ -708,7 +757,7 @@ class DownloadEngine:
                 sample.sample_id,
                 image,
                 request_bands,
-                computed_grid.to_ee(),
+                computed_grid,
                 workload_tag,
                 output,
                 mask_path if has_mask else None,
@@ -757,7 +806,7 @@ class DownloadEngine:
                     rejected_attempts = 0
                 results.append(result)
                 accepted += 1
-            elif _MISSING_IMAGE_ERROR in (result.error or ""):
+            elif _is_missing_image_error(result.error):
                 rejected_bytes += result.bytes_downloaded
                 rejected_seconds += result.elapsed_seconds
                 rejected_attempts += result.attempts
@@ -858,22 +907,7 @@ class DownloadEngine:
         selection: SceneSelection,
         workload_tag: str,
     ) -> tuple[Any, list[Mapping[str, Any]]]:
-        start = target + timedelta(days=selection.start_offset_days)
-        end = target + timedelta(days=selection.end_offset_days + 1)
-        selected = collection.filterDate(start.isoformat(), end.isoformat())
-        target_ms = int(target.timestamp() * 1000)
-        if selection.mode == "closest":
-            selected = selected.map(
-                lambda image: image.set(
-                    "_geesampler_delta",
-                    self.ee.Number(image.get("system:time_start")).subtract(target_ms).abs(),
-                )
-            ).sort("_geesampler_delta")
-        elif selection.mode == "latest":
-            selected = selected.sort("system:time_start", False)
-        else:
-            selected = selected.sort("system:time_start")
-        selected = selected.limit(selection.max_scenes)
+        selected = self._order_scenes(collection, target, selection)
         image_list = selected.toList(selection.max_scenes)
         metadata_fc = self.ee.FeatureCollection(
             image_list.map(
@@ -889,6 +923,26 @@ class DownloadEngine:
         raw = self.ee.data.computeFeatures({"expression": metadata_fc, "workloadTag": workload_tag})
         metadata = [dict(item.get("properties", {})) for item in _features(raw)]
         return selected, metadata
+
+    def _order_scenes(
+        self, collection: Any, target: datetime, selection: SceneSelection
+    ) -> Any:
+        start = target + timedelta(days=selection.start_offset_days)
+        end = target + timedelta(days=selection.end_offset_days + 1)
+        selected = collection.filterDate(start.isoformat(), end.isoformat())
+        target_ms = int(target.timestamp() * 1000)
+        if selection.mode == "closest":
+            selected = selected.map(
+                lambda image: image.set(
+                    "_geesampler_delta",
+                    self.ee.Number(image.get("system:time_start")).subtract(target_ms).abs(),
+                )
+            ).sort("_geesampler_delta")
+        elif selection.mode == "latest":
+            selected = selected.sort("system:time_start", False)
+        else:
+            selected = selected.sort("system:time_start")
+        return selected.limit(selection.max_scenes)
 
     def _download_pixels(
         self,
@@ -1007,7 +1061,7 @@ class DownloadEngine:
                 temp.unlink(missing_ok=True)
                 if mask_temp:
                     mask_temp.unlink(missing_ok=True)
-                if _MISSING_IMAGE_ERROR in str(exc):
+                if _is_missing_image_error(exc):
                     break
                 if attempts <= self.config.retries:
                     delay = self.config.retry_base_seconds * (2 ** (attempts - 1))
@@ -1088,17 +1142,24 @@ class DownloadEngine:
         if scene_resolver is not None:
             scene_ids = [scene.scene_id for scene in scene_resolver.candidates(sample)]
             if not scene_ids:
-                return TaskResult(
-                    task_id,
-                    sample.sample_id,
-                    "failed",
-                    None,
-                    0,
-                    time.monotonic() - started,
-                    1,
-                    error="No metadata-qualified scenes",
+                should_fallback = getattr(
+                    scene_resolver, "should_fallback_without_metadata", lambda _sample: False
                 )
-            collection = collection.filter(self.ee.Filter.inList("system:index", scene_ids))
+                if should_fallback(sample):
+                    scene_resolver.record_metadata_fallback()
+                else:
+                    return TaskResult(
+                        task_id,
+                        sample.sample_id,
+                        "failed",
+                        None,
+                        0,
+                        time.monotonic() - started,
+                        1,
+                        error="No metadata-qualified scenes",
+                    )
+            else:
+                collection = collection.filter(self.ee.Filter.inList("system:index", scene_ids))
         collection = collection.select(list(bands))
         while attempts <= self.config.retries:
             attempts += 1
@@ -1275,6 +1336,7 @@ class DownloadEngine:
                 f" catalog_hit={resolver_stats.catalog_hit_rate:.1%}"
                 f" metadata_queries={resolver_stats.compute_features_calls}"
                 f" qa_rejections={resolver_stats.quality_rejections}"
+                f" metadata_fallbacks={getattr(resolver_stats, 'metadata_fallbacks', 0)}"
             )
         LOGGER.info(
             "progress=%d/%d success=%d elapsed=%.1fs eta=%s samples/s=%.3f "

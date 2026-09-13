@@ -74,6 +74,7 @@ def _profile_entry(
             base_config,
             auth=profile.auth,
             run=run,
+            proxy_url=profile.proxy_url or base_config.proxy_url,
             accounts=(),
             distributed=DistributedRunConfig(),
         )
