@@ -53,3 +53,28 @@ geesampler progress path/to/metrics.jsonl --minutes 30
 The progress command streams timestamped task metrics, excludes cache hits from received-image bytes and reports malformed lines. It does not infer final dataset completion or scientific acceptance. Full workflow throughput includes metadata/provenance/QA gaps; download-stage throughput measures a different denominator. Neither establishes raw NIC capacity or EECU usage.
 
 References: [Earth Engine listing](https://developers.google.com/earth-engine/apidocs/ee-data-listimages), [USGS WRS-2](https://www.usgs.gov/media/files/landsat-world-reference-system-2-descending-daytime-shapefile), [Sentinel-2 grid](https://sentiwiki.copernicus.eu/web/s2-products), [HLS tiling](https://hls.gsfc.nasa.gov/products-description/tiling-system/), [GEDI index](https://developers.google.com/earth-engine/datasets/catalog/LARSE_GEDI_GEDI02_A_002_INDEX).
+
+
+## Quiet background operation
+
+Run stable workloads under the scheduler and retain their logs/checkpoints on disk.
+An agent does not need to poll healthy jobs. At termination, check both scheduler
+exit status and the dataset's independent validation, then record the result:
+
+```python
+from geesampler.events import record_outcome
+
+record_outcome("events", "unique-job-attempt", ok=validated_and_exit_zero,
+               details={"log": "collection.log", "validation": "completion.json"},
+               on_error=None)  # optionally ["/path/to/notification-enqueuer"]
+```
+
+The optional error command receives the event JSON path as its final argument.
+Success is silent. Repeated identical outcomes do not repeat notifications;
+conflicting outcomes need a distinct attempt ID. Hook failures are recorded without
+hiding the original collection failure. Delivery is at most once: a crash between
+recording and dispatch can leave an undelivered event for manual inspection.
+A notification hook must enqueue quickly (30-second limit); it does not itself
+install a service or wake a Codex session. An external runner must provide that
+integration. Scheduler completion hooks can detect OOM, timeout, cancellation and
+node failures even when a process cannot run its own exception handler.
