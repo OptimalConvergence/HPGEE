@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .storage import require_local_sqlite
+
 
 def _utc_millis(value: datetime | float) -> int:
     if isinstance(value, datetime):
@@ -77,6 +79,7 @@ class S2SceneCatalog:
 
     def __init__(self, path: str | Path):
         self.path = Path(path).expanduser()
+        require_local_sqlite(self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._write_lock = threading.Lock()
         self._initialize()

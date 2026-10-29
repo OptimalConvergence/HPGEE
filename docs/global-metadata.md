@@ -16,7 +16,7 @@ Supported collection aliases:
 | Alias | GEE collection | Native grouping |
 | --- | --- | --- |
 | `s2` | `COPERNICUS/S2_SR_HARMONIZED` | MGRS |
-| `landsat4`, `landsat5`, `landsat7`, `landsat9` | `LANDSAT/{LT04,LT05,LE07,LC09}/C02/T1_L2` | WRS path/row |
+| `landsat4`, `landsat5`, `landsat7`, `landsat8`, `landsat9` | `LANDSAT/{LT04,LT05,LE07,LC08,LC09}/C02/T1_L2` | WRS path/row |
 | `hlsl30`, `hlss30` | `NASA/HLS/{HLSL30,HLSS30}/v002` | MGRS |
 | `viirs` | `NASA/VIIRS/002/VNP09GA` | GEE daily mosaic assets |
 | `gedi` | `LARSE/GEDI/GEDI02_A_002_MONTHLY` | GEE raster assets; no assumed WRS/MGRS grid |

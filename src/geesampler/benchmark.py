@@ -122,6 +122,8 @@ def benchmark_patch_downloads(
     base_catalog_path = None
     if config.catalog is not None:
         base_catalog_path = output_dir / "catalogs" / f"{benchmark_id}-base.sqlite"
+        from .storage import require_local_sqlite
+        require_local_sqlite(base_catalog_path)
         if config.catalog.path.is_file():
             _copy_catalog(config.catalog.path, base_catalog_path)
             _clear_catalog_quality(base_catalog_path)

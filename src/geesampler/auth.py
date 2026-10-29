@@ -48,17 +48,19 @@ def validate_auth_config(config: AuthConfig) -> None:
         raise ValueError("Configured project does not match credential file")
 
 
-def initialize_earth_engine(config: AuthConfig, *, pool_size: int = 8, timeout: float | None = None) -> Any:
+def initialize_earth_engine(config: AuthConfig, *, pool_size: int = 8, timeout: float | None = None, observer=None, credentials=None) -> Any:
     import ee
 
     validate_auth_config(config)
-    endpoint = HIGH_VOLUME_URL if config.high_volume else None
+    endpoint = HIGH_VOLUME_URL if config.high_volume else "https://earthengine.googleapis.com"
     kwargs: dict[str, Any] = {"project": config.project}
+    if credentials is not None:
+        kwargs["credentials"] = credentials
     if endpoint:
         kwargs["url"] = endpoint
     if config.service_account:
         key_file = Path(config.key_file).expanduser()
         kwargs["credentials"] = ee.ServiceAccountCredentials(config.service_account, str(key_file))
-    kwargs["http_transport"] = RequestsTransport(pool_size=max(1, pool_size), timeout=timeout)
+    kwargs["http_transport"] = RequestsTransport(pool_size=max(1, pool_size), timeout=timeout, observer=observer)
     retry_read(lambda: ee.Initialize(**kwargs))
     return ee

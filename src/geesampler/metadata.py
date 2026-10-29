@@ -22,6 +22,7 @@ COLLECTIONS = {
     "landsat4": "LANDSAT/LT04/C02/T1_L2",
     "landsat5": "LANDSAT/LT05/C02/T1_L2",
     "landsat7": "LANDSAT/LE07/C02/T1_L2",
+    "landsat8": "LANDSAT/LC08/C02/T1_L2",
     "landsat9": "LANDSAT/LC09/C02/T1_L2",
     "hlsl30": "NASA/HLS/HLSL30/v002",
     "hlss30": "NASA/HLS/HLSS30/v002",

@@ -9,6 +9,13 @@ workload-tagged EECU monitoring.
 The default patch is **336×336 pixels at 10 m**. Patch size, scale, bands,
 temporal selection, endpoint, and concurrency remain configurable.
 
+SQLite scene catalogs and task ledgers are refused on NFS mounts. The package
+checks this at startup because frequent 4 KiB page access can overload a shared
+mechanical NFS array even when the database is small. Stage the working catalog
+on allocated node-local storage after checking capacity and lifecycle; retain
+durable, sequential checkpoints on approved persistent storage. Do not point
+the live catalog or task ledger at the NFS checkpoint.
+
 ## Installation
 
 ```bash

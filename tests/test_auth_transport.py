@@ -47,3 +47,14 @@ def test_requests_transport_sizes_both_connection_pools():
     assert transport.session.get_adapter("https://")._pool_maxsize == 17
     assert transport.session.get_adapter("http://")._pool_block is True
     transport.close()
+
+def test_standard_endpoint_is_explicit_after_high_volume(monkeypatch):
+    import ee
+    from geesampler.auth import initialize_earth_engine
+    calls=[]
+    monkeypatch.setattr(ee,'Initialize',lambda **kw:calls.append(kw))
+    credentials=object()
+    initialize_earth_engine(AuthConfig('project-x',high_volume=True),credentials=credentials)
+    initialize_earth_engine(AuthConfig('project-x',high_volume=False),credentials=credentials)
+    assert calls[-1]['url']=='https://earthengine.googleapis.com'
+    assert calls[-1]['credentials'] is credentials

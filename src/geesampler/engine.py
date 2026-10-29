@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .catalog import SceneRecord
+from .storage import require_local_sqlite
 from .grid import compute_grid
 from .models import (
     DEFAULT_PATCH_GRID,
@@ -36,6 +37,7 @@ from .monitoring import CloudEECUReader, EECUMonitor
 LOGGER = logging.getLogger(__name__)
 _SERVICE_ACCOUNT_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.gserviceaccount\.com")
 _BEARER_TOKEN = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*")
+_PAYLOAD_LIMIT_ERROR = re.compile(r"Total request size \(\d+ bytes\) must be less than or equal to \d+ bytes")
 _MISSING_IMAGE_ERRORS = (
     "Parameter 'input' is required and may not be null",
     "List.get: List is empty",
@@ -93,6 +95,7 @@ def _iso_from_millis(value: Any) -> str | None:
 
 class TaskLedger:
     def __init__(self, path: Path):
+        require_local_sqlite(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._lock = threading.Lock()
@@ -180,6 +183,7 @@ class DownloadEngine:
         *,
         ee_module: Any | None = None,
         eecu_reader_factory: Callable[[str, str], Any] | None = None,
+        credentials: Any | None = None,
     ):
         self.project = project
         self.config = config
@@ -189,6 +193,43 @@ class DownloadEngine:
             ee_module = ee
         self.ee = ee_module
         self.eecu_reader_factory = eecu_reader_factory
+        self.credentials = credentials
+
+    def download_frozen_blocks(
+        self, records, *, image_builder, bands, grid_builder,
+        verified=None, publish=None, writers=2, scenario="raw", run_id=None,
+    ):
+        """Transfer exact frozen expressions through the existing engine.
+
+        No catalog selection or cloud QA is applied. ``verified`` must establish
+        durable source/grid/recipe identity and file integrity before reuse.
+        ``publish`` validates and publishes completed local payloads; a failure
+        is retained as a failed task. Writer concurrency is separate from HTTP.
+        """
+        if writers < 1:
+            raise ValueError('Positive writer count required')
+        writer_slots = threading.BoundedSemaphore(writers)
+        def worker(sample, tag, ledger, run_dir):
+            if verified is not None and verified(sample):
+                return [TaskResult(sample.sample_id, sample.sample_id, 'skipped', None, 0, 0, 0)]
+            output = run_dir / 'images' / (_safe_name(sample.sample_id)+'.tif')
+            result = self._download_pixels(sample.sample_id, sample.sample_id,
+                image_builder(sample), list(bands), grid_builder(sample), tag,
+                output, None, sample.sample_id, sample.date.isoformat() if sample.date else None,
+                data_band_count=len(bands))
+            if result.status == 'success' and publish is not None:
+                try:
+                    queued = time.monotonic()
+                    with writer_slots:
+                        publish_started = time.monotonic()
+                        publish(sample, result)
+                    result = replace(result, timings={**result.timings,
+                        'publish_queue_wait': publish_started-queued,
+                        'pixel_qa_compress_publish': time.monotonic()-publish_started})
+                except Exception as exc:
+                    result = replace(result, status='failed', error=redact_error(exc))
+            return [result]
+        return self._run(list(records), scenario, run_id, worker)
 
     def download_patch_series(
         self,
@@ -322,8 +363,15 @@ class DownloadEngine:
         reader = None
         if self.config.eecu.enabled:
             try:
-                factory = self.eecu_reader_factory or CloudEECUReader
-                reader = factory(self.project, workload_tag)
+                start_path = run_dir / "eecu-start.json"
+                if not start_path.exists():
+                    start_path.write_text(json.dumps({"start": datetime.now(timezone.utc).isoformat(),
+                                                      "project": self.project, "workload_tag": workload_tag}))
+                identity = json.loads(start_path.read_text())
+                if identity['project'] != self.project or identity['workload_tag'] != workload_tag:
+                    raise ValueError('Persisted EECU identity differs')
+                reader = (self.eecu_reader_factory(self.project, workload_tag) if self.eecu_reader_factory
+                          else CloudEECUReader(self.project, workload_tag, start=identity['start'], credentials=self.credentials))
             except Exception as exc:
                 if self.config.eecu.required:
                     ledger.close()
@@ -1061,7 +1109,7 @@ class DownloadEngine:
                 temp.unlink(missing_ok=True)
                 if mask_temp:
                     mask_temp.unlink(missing_ok=True)
-                if _is_missing_image_error(exc):
+                if _is_missing_image_error(exc) or _PAYLOAD_LIMIT_ERROR.search(str(exc)):
                     break
                 if attempts <= self.config.retries:
                     delay = self.config.retry_base_seconds * (2 ** (attempts - 1))
@@ -1350,7 +1398,7 @@ class DownloadEngine:
             successful / elapsed,
             bytes_downloaded / (1024**2) / elapsed,
             retained_bytes / (1024**2) / elapsed,
-            f"{eecu.completed_seconds:.2f}" if eecu is not None else "unavailable",
-            f"{eecu.in_progress_seconds:.2f}" if eecu is not None else "unavailable",
+            f"{eecu.completed_seconds:.2f}" if eecu is not None and eecu.completed_seconds is not None else "unavailable",
+            f"{eecu.in_progress_seconds:.2f}" if eecu is not None and eecu.in_progress_seconds is not None else "unavailable",
             catalog_suffix,
         )

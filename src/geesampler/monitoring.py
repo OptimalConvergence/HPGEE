@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
@@ -19,64 +21,120 @@ IN_PROGRESS_METRIC = "earthengine.googleapis.com/project/cpu/in_progress_usage_t
 @dataclass(frozen=True)
 class EECUSnapshot:
     timestamp: str
-    completed_seconds: float
-    in_progress_seconds: float
+    completed_seconds: float | None
+    in_progress_seconds: float | None
     available: bool = True
     error: str | None = None
 
     @property
     def guard_seconds(self) -> float:
         """Best available usage for guarding without double-counting both metrics."""
-        return max(self.completed_seconds, self.in_progress_seconds)
+        values = [v for v in (self.completed_seconds, self.in_progress_seconds) if v is not None]
+        return max(values) if values else None
 
 
 def _point_value(point: Any) -> float:
     value = point.value
-    for name in ("double_value", "int64_value"):
-        item = getattr(value, name, None)
-        if item is not None:
-            return float(item)
-    return 0.0
+    name = value._pb.WhichOneof("value")
+    if name not in ("double_value", "int64_value"):
+        raise ValueError("Unsupported Monitoring value type")
+    result = float(getattr(value, name))
+    if not math.isfinite(result) or result < 0:
+        raise ValueError("Invalid Monitoring usage value")
+    return result
+
+
+class MonitoringRESTClient:
+    """Official timeSeries REST with explicit EE credentials and bounded pages.
+
+    Older google-cloud-monitoring releases only provide gRPC transports; REST
+    here uses the same HTTPS proxy path as pixel/auth requests.
+    """
+    def __init__(self, credentials=None, *, session=None):
+        if session is None:
+            from google.auth.transport.requests import AuthorizedSession
+            session=AuthorizedSession(credentials)
+        self.session=session
+        self.http_attempts=0
+
+    def list_time_series(self, *, request, timeout=30, retry=None):
+        from google.cloud import monitoring_v3
+        interval=request['interval']
+        params={'filter':request['filter'], 'interval.startTime':interval.start_time.isoformat(),
+                'interval.endTime':interval.end_time.isoformat(), 'view':'FULL','pageSize':1000}
+        seen=set()
+        for _ in range(10000):
+            self.http_attempts+=1
+            response=self.session.get('https://monitoring.googleapis.com/v3/'+request['name']+'/timeSeries',
+                                      params=params,timeout=timeout)
+            response.raise_for_status();data=response.json()
+            for item in data.get('timeSeries',[]):
+                yield monitoring_v3.TimeSeries.from_json(json.dumps(item))
+            token=data.get('nextPageToken')
+            if not token:return
+            if token in seen:raise ValueError('Repeated Monitoring page token')
+            seen.add(token);params['pageToken']=token
+        raise RuntimeError('Monitoring pagination cap reached')
 
 
 class CloudEECUReader:
-    """Read workload-tagged DELTA metrics from Cloud Monitoring."""
+    """Fixed-start cumulative DELTA usage, same EE identity, full pager iteration.
 
-    def __init__(self, project: str, workload_tag: str, lookback_minutes: int = 30):
-        try:
-            from google.cloud import monitoring_v3
-        except ImportError as exc:
-            raise ImportError("EECU monitoring requires the 'monitoring' extra") from exc
-        self.project = project
-        self.workload_tag = workload_tag
-        self.lookback_minutes = lookback_minutes
+    Missing points remain unknown. Re-querying replaces, never adds snapshots.
+    lookback_minutes is retained for source compatibility, fixed at construction;
+    engines pass their durable run start explicitly.
+    """
+    def __init__(self, project, workload_tag, lookback_minutes=30, *, start=None,
+                 credentials=None, client=None, tag_prefix=False):
+        from google.cloud import monitoring_v3
+        if not re.fullmatch(r'[a-z][a-z0-9-]{4,61}[a-z0-9]', project):
+            raise ValueError('Invalid project')
+        if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,62}', workload_tag):
+            raise ValueError('Invalid workload tag')
+        self.project, self.workload_tag = project, workload_tag
+        self.tag_prefix = tag_prefix
+        self.start = start or datetime.now(timezone.utc)-timedelta(minutes=lookback_minutes)
+        if isinstance(self.start,str): self.start=datetime.fromisoformat(self.start.replace('Z','+00:00'))
+        if self.start.tzinfo is None: raise ValueError('UTC offset required')
         self._monitoring_v3 = monitoring_v3
-        self._client = monitoring_v3.MetricServiceClient()
+        if client is None:
+            if credentials is None:
+                import ee
+                state = ee.data._get_state() if hasattr(ee.data, '_get_state') else ee.data
+                credentials = getattr(state, 'credentials', getattr(state, '_credentials', None))
+                if credentials is None: credentials=ee.data.get_persistent_credentials()
+            client=MonitoringRESTClient(credentials=credentials)
+        self._client=client
+        self.raw_points=[]
 
-    def _sum(self, metric_type: str) -> float:
-        now = datetime.now(timezone.utc)
-        interval = self._monitoring_v3.TimeInterval(
-            {"end_time": now, "start_time": now - timedelta(minutes=self.lookback_minutes)}
-        )
-        metric_filter = (
-            f'metric.type = "{metric_type}" AND metric.labels.workload_tag = "{self.workload_tag}"'
-        )
-        series = self._client.list_time_series(
-            request={
-                "name": f"projects/{self.project}",
-                "filter": metric_filter,
-                "interval": interval,
-                "view": self._monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
-            }
-        )
-        return sum(_point_value(point) for item in series for point in item.points)
+    def _sum(self, metric_type, now):
+        interval=self._monitoring_v3.TimeInterval({'start_time':self.start,'end_time':now})
+        query=(f'metric.type = "{metric_type}" AND resource.labels.project_id = "{self.project}" '
+               f'AND metric.labels.workload_tag = "{self.workload_tag}"')
+        if self.tag_prefix:
+            query = (f'metric.type = "{metric_type}" AND resource.labels.project_id = "{self.project}" '
+                     f'AND metric.labels.workload_tag = monitoring.regex.full_match("{self.workload_tag}.*")')
+        series=self._client.list_time_series(request={'name':f'projects/{self.project}',
+            'filter':query,'interval':interval,
+            'view':self._monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL},timeout=30,retry=None)
+        points={}
+        for item in series:
+            tag=item.metric.labels.get('workload_tag','')
+            tag_ok=tag.startswith(self.workload_tag) if self.tag_prefix else tag==self.workload_tag
+            if item.resource.labels.get('project_id')!=self.project or not tag_ok:
+                raise ValueError('Monitoring project/tag mismatch')
+            for point in item.points:
+                identity=dict(metric=metric_type,resource_type=item.resource.type,resource=dict(item.resource.labels),
+                              labels=dict(item.metric.labels),start=str(point.interval.start_time),end=str(point.interval.end_time))
+                points[json.dumps(identity,sort_keys=True)]=dict(identity,value=_point_value(point))
+        self.raw_points.extend(points.values())
+        return sum(p['value'] for p in points.values()) if points else None
 
-    def read(self) -> EECUSnapshot:
-        return EECUSnapshot(
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            completed_seconds=self._sum(COMPLETED_METRIC),
-            in_progress_seconds=self._sum(IN_PROGRESS_METRIC),
-        )
+    def read(self):
+        now=datetime.now(timezone.utc);self.raw_points=[]
+        completed=self._sum(COMPLETED_METRIC,now);progress=self._sum(IN_PROGRESS_METRIC,now)
+        return EECUSnapshot(now.isoformat(),completed,progress,
+                            available=completed is not None or progress is not None)
 
 
 class EECUMonitor:
@@ -122,7 +180,11 @@ class EECUMonitor:
         try:
             snapshot = self.reader.read()
             self.latest = snapshot
-            hours = snapshot.guard_seconds / 3600.0
+            hours = snapshot.guard_seconds / 3600.0 if snapshot.guard_seconds is not None else None
+            if hours is None:
+                if self.config.required: self.hard_limit_reached = True
+                self._append(snapshot)
+                return snapshot
             if (
                 self.config.warning_eecu_hours is not None
                 and hours >= self.config.warning_eecu_hours
@@ -140,17 +202,20 @@ class EECUMonitor:
             self.unavailable_error = type(exc).__name__
             if self.config.required:
                 self.hard_limit_reached = True
+            self._append(EECUSnapshot(datetime.now(timezone.utc).isoformat(),None,None,False,type(exc).__name__))
             LOGGER.warning("Unable to read EECU metrics (%s)", type(exc).__name__)
             return None
 
     def _append(self, snapshot: EECUSnapshot) -> None:
         completed = self.completed_samples()
         payload = asdict(snapshot)
+        payload["raw_points"] = getattr(self.reader, "raw_points", [])
+        payload["telemetry_complete"] = False
         payload["completed_samples"] = completed
-        payload["eecu_per_success"] = snapshot.completed_seconds / completed if completed else None
+        payload["eecu_per_success"] = snapshot.completed_seconds / completed if completed and snapshot.completed_seconds is not None else None
         payload["projected_cost"] = (
             snapshot.completed_seconds / 3600.0 * self.config.price_per_eecu_hour
-            if self.config.price_per_eecu_hour is not None
+            if self.config.price_per_eecu_hour is not None and snapshot.completed_seconds is not None
             else None
         )
         self.metrics_path.parent.mkdir(parents=True, exist_ok=True)

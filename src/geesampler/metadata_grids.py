@@ -13,6 +13,8 @@ from pathlib import Path
 
 import requests
 
+from .storage import require_local_sqlite
+
 SOURCES = {
     "wrs2": "https://d9-wret.s3.us-west-2.amazonaws.com/assets/palladium/production/s3fs-public/atoms/files/WRS2_descending.zip",
     "mgrs": "https://sentiwiki.copernicus.eu/__attachments/a_69a662aa1cb30487acc66009f09b1dcfa9e4e32f92af1c3b2dd1fc8a3c011738/S2A_OPER_GIP_TILPAR_MPC__20151209T095117_V20150622T000000_21000101T000000_B00.zip",
@@ -77,6 +79,7 @@ def build_grids(directory: str | Path) -> dict:
     directory.mkdir(parents=True, exist_ok=True)
     database = directory / "grids.sqlite"
     temporary = directory / "grids.build.sqlite"
+    require_local_sqlite(database)
     sources = {
         name: fetch_archive(url, directory / (name + ".zip")) for name, url in SOURCES.items()
     }
