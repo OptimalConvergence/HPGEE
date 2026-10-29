@@ -160,6 +160,14 @@ def test_wrapped_http_error_preserves_retryability():
     assert not is_transient(outer)
 
 
+def test_cyclic_exception_chain_is_not_infinitely_recursive():
+    from hpgee.runtime.retry import is_transient
+
+    first, second = RuntimeError("first"), RuntimeError("second")
+    first.__cause__, second.__cause__ = second, first
+    assert not is_transient(first)
+
+
 def test_progress_does_not_count_cache_as_network(tmp_path):
     import json
     from hpgee.catalog.metadata import utc

@@ -31,7 +31,7 @@ For HLS tile-mask statistics, evaluate over an explicit full target-grid extent 
 
 ## Delivery and partition consistency
 
-Use GEESampler's `download_frozen_blocks` with `raw_delivery.publish`/`verified`, preserving the exact source/grid/unit contract. The publisher validates dtype, CRS/affine, edge dimensions, source-valid values, Fmask and common-support fraction before immutable hashed receipts. It keeps source-empty blocks rather than inventing valid observations. Successful transport is not event-level scientific acceptance.
+Use `DownloadEngine.download_frozen_blocks` with `raw_delivery.publish`/`verified`, preserving the exact source/grid/unit contract. The publisher validates dtype, CRS/affine, edge dimensions, source-valid values, Fmask and common-support fraction before immutable hashed receipts. It keeps source-empty blocks rather than inventing valid observations. Successful transport is not event-level scientific acceptance.
 
 Historical HLS WKT can name the WGS84 datum differently from EE's emitted EPSG UTM label. `same_hls_grid` permits the specific identical WGS84 UTM zone/hemisphere, metric ellipsoid, affine and dimensions; it is not general permission to substitute arbitrary CRSs. S1 30m inherits that HLS target grid. S1 native-grid checks retain its original projection.
 

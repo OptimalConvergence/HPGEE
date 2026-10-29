@@ -54,11 +54,11 @@ result = engine.download_patch_series(
 )
 ```
 
-`engine` is the existing GEESampler DownloadEngine with caller-owned project, allocation-local hot state, retry limits and workload identity. `products` has the exact `workflow_contract`, `PRODUCT_BANDS` order and `raster`. To read a successful result Asset, copy the product mapping and replace only `raster` with its `ee.Image(asset_id)`, preserving the contract and bands.
+`engine` is the shared `hpgee.transfer.engine.DownloadEngine` with caller-owned project, allocation-local hot state, retry limits and workload identity. `products` has the exact `workflow_contract`, `PRODUCT_BANDS` order and `raster`. To read a successful result Asset, copy the product mapping and replace only `raster` with its `ee.Image(asset_id)`, preserving the contract and bands.
 
 In packages that include frozen auxiliary context support, this validation also preserves its optional context SHA; it must not silently rebuild the default DEM contract.
 
-The helper supplies a single known derived scene/resolver and exact grid. It does not run catalog selection, cloud/quality probes, or remove unknown pixels. It accepts only selection `all/0/0/1`; source enumeration is not bypassed for original HLS/S1 observations. GEESampler still performs computePixels, writes its normal receipts and owns transfer recovery. Use unique run identities so workload tags cannot collide after truncation.
+The helper supplies a single known derived scene/resolver and exact grid. It does not run catalog selection, cloud/quality probes, or remove unknown pixels. It accepts only selection `all/0/0/1`; source enumeration is not bypassed for original HLS/S1 observations. `DownloadEngine` still performs computePixels, writes its normal receipts and owns transfer recovery. Use unique run identities so workload tags cannot collide after truncation.
 
 The synthetic scene's clock is `cfg.start`, a **derived product reference time**, not a source acquisition or burning date. Actual pre/post clocks and QA remain in the saved product bands. Preserve raw TIFF bytes, apply `workflow.finalize_transfer`, then validate pixels and candidate boundaries as usual.
 

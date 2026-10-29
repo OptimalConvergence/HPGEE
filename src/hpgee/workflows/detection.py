@@ -340,8 +340,8 @@ def _write(path,value):
     Path(path).write_text(json.dumps(value,indent=2,allow_nan=False)+'\n')
 
 
-def main(argv=None):
-    parser=argparse.ArgumentParser(prog='geecompute-workflow')
+def main(argv=None, *, prog='geecompute-workflow'):
+    parser=argparse.ArgumentParser(prog=prog)
     parser.add_argument('--config',required=True);parser.add_argument('--threshold',type=float,default=.5)
     parser.add_argument('--sample-points');parser.add_argument('--boundary-cap',type=int,default=2000)
     parser.add_argument('--transfer',action='store_true');parser.add_argument('--hot-dir')

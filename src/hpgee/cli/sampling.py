@@ -119,8 +119,8 @@ def run_config(path: str | Path) -> dict[str, Any]:
     return summary.to_dict()
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="geesampler")
+def main(argv: list[str] | None = None, *, prog: str = "geesampler") -> int:
+    parser = argparse.ArgumentParser(prog=prog)
     parser.add_argument("--log-level", default="INFO")
     subparsers = parser.add_subparsers(dest="command", required=True)
     run = subparsers.add_parser("run", help="Run a YAML sampling configuration")

@@ -61,8 +61,8 @@ def _write(path,value):
     Path(path).write_text(json.dumps(value,indent=2,ensure_ascii=False)+'\n')
 
 
-def main(argv=None):
-    parser=argparse.ArgumentParser(prog='geecompute')
+def main(argv=None, *, prog='geecompute'):
+    parser=argparse.ArgumentParser(prog=prog)
     commands=parser.add_subparsers(dest='command',required=True)
     for name in ('manifest','inspect','preview','train','usage','status','quota'):
         child=commands.add_parser(name); child.add_argument('--config',required=True)

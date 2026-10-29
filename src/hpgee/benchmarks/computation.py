@@ -248,8 +248,8 @@ def estimate_year(metrics,coverage,*,allow_synthetic=False,bandwidth_bytes_per_s
                            'EECU is compute usage, never interchangeable with wall hours']}
 
 
-def main(argv=None):
-    parser=argparse.ArgumentParser(prog='geecompute-benchmark'); commands=parser.add_subparsers(dest='command',required=True)
+def main(argv=None, *, prog='geecompute-benchmark'):
+    parser=argparse.ArgumentParser(prog=prog); commands=parser.add_subparsers(dest='command',required=True)
     for command in ('specs','execute','refresh-telemetry'):
         child=commands.add_parser(command); child.add_argument('--config',required=True)
         if command=='refresh-telemetry':

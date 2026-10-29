@@ -16,7 +16,7 @@ On the user's shared cluster, use `slurm-workflow` for substantial work; samplin
 
 ## Tune bounded comparable work
 
-For frozen HLS30/S1 original-scene series, read [raw-series transfer and cumulative telemetry](sampling/raw-series.md). It documents the existing GEESampler callback, source-valid QA and cross-size reuse limits; throughput settings remain workload-specific.
+For frozen HLS30/S1 original-scene series, read [raw-series transfer and cumulative telemetry](sampling/raw-series.md). It documents the shared `hpgee.transfer` callback, source-valid QA and cross-size reuse limits; throughput settings remain workload-specific.
 
 Use small disjoint cohorts stratified by relevant geography/time/complexity, reverse or randomize trial order and retain valid outputs. Keep the scientific contract constant. Initialize one active EE transport per process with a blocking HTTP pool sized for the largest worker trial. Authentication background managers can deepcopy that transport; a per-host pool does not bound aggregate requests. Test the installed auth lifecycle, share copied transport identity and serialize durable reserve/read/settle operations; drain requests before final counters and replay every raw event, retaining conservative charges when historical IDs collide. Choose the smallest stable configuration near the measured optimum, including retries, memory and end-to-end QA. Historical worker counts are not defaults. See [metadata trials](sampling/metadata-tuning.md) only for that workload.
 

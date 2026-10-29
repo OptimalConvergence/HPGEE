@@ -23,3 +23,15 @@ catalog:
     assert payload["scenes"] == 0
     assert payload["size_bytes"] > 0
     assert "auth" not in payload
+
+
+def test_unified_cli_help_names_hpgee_commands(capsys):
+    import pytest
+    from hpgee.cli.main import main as hpgee_main
+
+    for command, usage in [("metadata", "usage: hpgee metadata"), ("compute", "usage: hpgee compute"),
+                           ("workflow", "usage: hpgee workflow"), ("benchmark", "usage: hpgee benchmark")]:
+        with pytest.raises(SystemExit) as exit_info:
+            hpgee_main([command, "--help"])
+        assert exit_info.value.code == 0
+        assert capsys.readouterr().out.startswith(usage)

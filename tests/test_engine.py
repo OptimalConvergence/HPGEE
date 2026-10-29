@@ -74,6 +74,39 @@ def test_error_redaction_removes_credential_shapes():
     assert "secret" not in message
 
 
+def test_error_redaction_removes_oauth_tokens_and_signed_url_parameters():
+    message = redact_error(
+        '{"access_token": "ya29.a0Secret-Value", "token_type": "Bearer"} '
+        "refresh_token=1//refresh-secret "
+        "https://example.invalid/download?name=x&X-Goog-Signature=abc123&key=apikey456 "
+        "leaked ya29.standalone-token"
+    )
+    for secret in ("a0Secret-Value", "refresh-secret", "abc123", "apikey456", "standalone-token"):
+        assert secret not in message
+    assert "name=x" in message
+    assert redact_error("Missing key: B4") == "Missing key: B4"
+
+
+def test_failed_local_split_removes_every_partial_file(tmp_path):
+    class InterruptedSplitEngine(DownloadEngine):
+        @staticmethod
+        def _split_internal_bands(combined, image_output, mask_output, **_kwargs):
+            image_output.write_bytes(b"half-written data band")
+            raise OSError("disk full")
+
+    config = RunConfig(tmp_path, workers=1, retries=1, retry_base_seconds=0,
+                       eecu=EECUMonitorConfig(enabled=False))
+    engine = InterruptedSplitEngine("project", config, ee_module=FakeEE())
+    output = tmp_path / "images" / "sample.tif"
+    result = engine._download_pixels(
+        "task", "sample", object(), ["B2", "quality"], {}, "tag", output, None,
+        "scene", None, data_band_count=1, quality_required=True,
+    )
+    assert result.status == "failed"
+    assert result.attempts == 2
+    assert list(output.parent.iterdir()) == []
+
+
 def test_patch_request_grid_tag_manifest_and_resume(tmp_path):
     fake = FakeEE()
     config = RunConfig(

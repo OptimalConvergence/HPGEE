@@ -15,7 +15,7 @@ T = TypeVar("T")
 LOGGER = logging.getLogger(__name__)
 
 
-def is_transient(error: Exception) -> bool:
+def is_transient(error: Exception, _seen: set[int] | None = None) -> bool:
     if isinstance(
         error,
         (
@@ -32,8 +32,10 @@ def is_transient(error: Exception) -> bool:
         status = getattr(getattr(error, "response", None), "status_code", None)
     if status is not None:
         return status in (408, 429, 500, 502, 503, 504)
+    # Explicit ``raise ... from`` chains can form cycles; visit each error once.
+    seen = (_seen or set()) | {id(error)}
     cause = error.__cause__ or error.__context__
-    return cause is not None and cause is not error and is_transient(cause)
+    return cause is not None and id(cause) not in seen and is_transient(cause, seen)
 
 
 def retry_read(

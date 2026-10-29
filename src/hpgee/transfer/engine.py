@@ -20,12 +20,21 @@ from typing import Any
 from hpgee.catalog.catalog import SceneRecord
 from hpgee.core.storage import require_local_sqlite
 from hpgee.core.grid import compute_grid
-from hpgee.core.models import DEFAULT_PATCH_GRID, DEFAULT_SCENE_SELECTION, CollectionBuilder, MaskBuilder, PatchGrid, RunConfig, RunSummary, SampleRecord, SceneSelection, TaskResult
+from hpgee.core.models import DEFAULT_PATCH_GRID, DEFAULT_SCENE_SELECTION, CollectionBuilder, MaskBuilder, PatchGrid, \
+    RunConfig, RunSummary, SampleRecord, SceneSelection, TaskResult
 from hpgee.accounting.sampling import CloudEECUReader, EECUMonitor
+
+from pdb import set_trace as here
 
 LOGGER = logging.getLogger(__name__)
 _SERVICE_ACCOUNT_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.gserviceaccount\.com")
 _BEARER_TOKEN = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*")
+_TOKEN_FIELD = re.compile(
+    r"(?i)\b((?:access_token|refresh_token|id_token|client_secret)[\"']?\s*[=:]\s*[\"']?)"
+    r"[^\s&\"',;}]+"
+)
+_SIGNED_URL_PARAMETER = re.compile(r"(?i)([?&](?:key|sig|signature|token|x-goog-signature)=)[^\s&\"']+")
+_GOOGLE_OAUTH_TOKEN = re.compile(r"\bya29\.[A-Za-z0-9._~+/-]+")
 _PAYLOAD_LIMIT_ERROR = re.compile(r"Total request size \(\d+ bytes\) must be less than or equal to \d+ bytes")
 _MISSING_IMAGE_ERRORS = (
     "Parameter 'input' is required and may not be null",
@@ -49,6 +58,9 @@ def redact_error(value: object) -> str:
     text = str(value)
     text = _SERVICE_ACCOUNT_EMAIL.sub("<service-account>", text)
     text = _BEARER_TOKEN.sub(r"\1<token>", text)
+    text = _TOKEN_FIELD.sub(r"\1<redacted>", text)
+    text = _SIGNED_URL_PARAMETER.sub(r"\1<redacted>", text)
+    text = _GOOGLE_OAUTH_TOKEN.sub("<token>", text)
     text = re.sub(
         r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----.*?"
         r"-----END (?:[A-Z]+ )*PRIVATE KEY-----",
@@ -91,15 +103,42 @@ class TaskLedger:
         with self._db:
             self._db.execute(
                 """
-                CREATE TABLE IF NOT EXISTS tasks (
-                    task_id TEXT PRIMARY KEY,
-                    status TEXT NOT NULL,
-                    output_path TEXT,
-                    attempts INTEGER NOT NULL DEFAULT 0,
-                    bytes_downloaded INTEGER NOT NULL DEFAULT 0,
-                    elapsed_seconds REAL NOT NULL DEFAULT 0,
-                    error TEXT,
-                    updated_at TEXT NOT NULL
+                CREATE TABLE IF NOT EXISTS tasks
+                (
+                    task_id
+                    TEXT
+                    PRIMARY
+                    KEY,
+                    status
+                    TEXT
+                    NOT
+                    NULL,
+                    output_path
+                    TEXT,
+                    attempts
+                    INTEGER
+                    NOT
+                    NULL
+                    DEFAULT
+                    0,
+                    bytes_downloaded
+                    INTEGER
+                    NOT
+                    NULL
+                    DEFAULT
+                    0,
+                    elapsed_seconds
+                    REAL
+                    NOT
+                    NULL
+                    DEFAULT
+                    0,
+                    error
+                    TEXT,
+                    updated_at
+                    TEXT
+                    NOT
+                    NULL
                 )
                 """
             )
@@ -115,11 +154,10 @@ class TaskLedger:
         with self._lock, self._db:
             self._db.execute(
                 """
-                INSERT INTO tasks (
-                    task_id, status, output_path, attempts, bytes_downloaded,
-                    elapsed_seconds, error, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(task_id) DO UPDATE SET
+                INSERT INTO tasks (task_id, status, output_path, attempts, bytes_downloaded,
+                                   elapsed_seconds, error, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(task_id) DO
+                UPDATE SET
                     status=excluded.status,
                     output_path=excluded.output_path,
                     attempts=excluded.attempts,
@@ -158,6 +196,23 @@ class MetricsRecorder:
             stream.write(json.dumps(event, sort_keys=True) + "\n")
 
 
+class _ProgressTotals:
+    """Running totals so each completion's progress log does not rescan all results."""
+
+    def __init__(self) -> None:
+        self.sample_ids: set[str] = set()
+        self.successful_ids: set[str] = set()
+        self.bytes_downloaded = 0
+        self.retained_bytes = 0
+
+    def add(self, item: TaskResult) -> None:
+        self.sample_ids.add(item.sample_id)
+        if item.status == "success":
+            self.successful_ids.add(item.sample_id)
+        self.bytes_downloaded += item.bytes_downloaded
+        self.retained_bytes += item.retained_bytes
+
+
 def _features(result: Any) -> list[Mapping[str, Any]]:
     if isinstance(result, Mapping):
         return list(result.get("features", []))
@@ -166,13 +221,13 @@ def _features(result: Any) -> list[Mapping[str, Any]]:
 
 class DownloadEngine:
     def __init__(
-        self,
-        project: str,
-        config: RunConfig,
-        *,
-        ee_module: Any | None = None,
-        eecu_reader_factory: Callable[[str, str], Any] | None = None,
-        credentials: Any | None = None,
+            self,
+            project: str,
+            config: RunConfig,
+            *,
+            ee_module: Any | None = None,
+            eecu_reader_factory: Callable[[str, str], Any] | None = None,
+            credentials: Any | None = None,
     ):
         self.project = project
         self.config = config
@@ -185,8 +240,8 @@ class DownloadEngine:
         self.credentials = credentials
 
     def download_frozen_blocks(
-        self, records, *, image_builder, bands, grid_builder,
-        verified=None, publish=None, writers=2, scenario="raw", run_id=None,
+            self, records, *, image_builder, bands, grid_builder,
+            verified=None, publish=None, writers=2, scenario="raw", run_id=None,
     ):
         """Transfer exact frozen expressions through the existing engine.
 
@@ -198,14 +253,17 @@ class DownloadEngine:
         if writers < 1:
             raise ValueError('Positive writer count required')
         writer_slots = threading.BoundedSemaphore(writers)
+
         def worker(sample, tag, ledger, run_dir):
             if verified is not None and verified(sample):
                 return [TaskResult(sample.sample_id, sample.sample_id, 'skipped', None, 0, 0, 0)]
-            output = run_dir / 'images' / (_safe_name(sample.sample_id)+'.tif')
+            output = run_dir / 'images' / (_safe_name(sample.sample_id) + '.tif')
+
             result = self._download_pixels(sample.sample_id, sample.sample_id,
-                image_builder(sample), list(bands), grid_builder(sample), tag,
-                output, None, sample.sample_id, sample.date.isoformat() if sample.date else None,
-                data_band_count=len(bands))
+                                           image_builder(sample), list(bands), grid_builder(sample), tag,
+                                           output, None, sample.sample_id,
+                                           sample.date.isoformat() if sample.date else None,
+                                           data_band_count=len(bands))
             if result.status == 'success' and publish is not None:
                 try:
                     queued = time.monotonic()
@@ -213,26 +271,27 @@ class DownloadEngine:
                         publish_started = time.monotonic()
                         publish(sample, result)
                     result = replace(result, timings={**result.timings,
-                        'publish_queue_wait': publish_started-queued,
-                        'pixel_qa_compress_publish': time.monotonic()-publish_started})
+                                                      'publish_queue_wait': publish_started - queued,
+                                                      'pixel_qa_compress_publish': time.monotonic() - publish_started})
                 except Exception as exc:
                     result = replace(result, status='failed', error=redact_error(exc))
             return [result]
+
         return self._run(list(records), scenario, run_id, worker)
 
     def download_patch_series(
-        self,
-        records: Iterable[SampleRecord],
-        collection_builder: CollectionBuilder,
-        *,
-        bands: Sequence[str],
-        grid: PatchGrid = DEFAULT_PATCH_GRID,
-        grid_builder: Callable[[SampleRecord, PatchGrid], Mapping[str, Any]] | None = None,
-        selection: SceneSelection = DEFAULT_SCENE_SELECTION,
-        mask_builder: MaskBuilder | None = None,
-        scene_resolver: Any | None = None,
-        scenario: str = "patches",
-        run_id: str | None = None,
+            self,
+            records: Iterable[SampleRecord],
+            collection_builder: CollectionBuilder,
+            *,
+            bands: Sequence[str],
+            grid: PatchGrid = DEFAULT_PATCH_GRID,
+            grid_builder: Callable[[SampleRecord, PatchGrid], Mapping[str, Any]] | None = None,
+            selection: SceneSelection = DEFAULT_SCENE_SELECTION,
+            mask_builder: MaskBuilder | None = None,
+            scene_resolver: Any | None = None,
+            scenario: str = "patches",
+            run_id: str | None = None,
     ) -> RunSummary:
         input_started = time.monotonic()
         samples = list(records)
@@ -268,16 +327,16 @@ class DownloadEngine:
         )
 
     def download_point_series(
-        self,
-        records: Iterable[SampleRecord],
-        collection_builder: CollectionBuilder,
-        *,
-        bands: Sequence[str],
-        scale: float = 10.0,
-        selection: SceneSelection = DEFAULT_SCENE_SELECTION,
-        scene_resolver: Any | None = None,
-        scenario: str = "points",
-        run_id: str | None = None,
+            self,
+            records: Iterable[SampleRecord],
+            collection_builder: CollectionBuilder,
+            *,
+            bands: Sequence[str],
+            scale: float = 10.0,
+            selection: SceneSelection = DEFAULT_SCENE_SELECTION,
+            scene_resolver: Any | None = None,
+            scenario: str = "points",
+            run_id: str | None = None,
     ) -> RunSummary:
         input_started = time.monotonic()
         samples = list(records)
@@ -317,20 +376,20 @@ class DownloadEngine:
         )
 
     def _run(
-        self,
-        samples: Sequence[SampleRecord],
-        scenario: str,
-        run_id: str | None,
-        worker: Callable[[SampleRecord, str, TaskLedger, Path], list[TaskResult]],
-        *,
-        prepare: Callable[[Sequence[SampleRecord], str], Sequence[SampleRecord]] | None = None,
-        metrics_provider: Callable[[], Any] | None = None,
-        started_at: float | None = None,
-        initial_metrics: Mapping[str, Any] | None = None,
+            self,
+            samples: Sequence[SampleRecord],
+            scenario: str,
+            run_id: str | None,
+            worker: Callable[[SampleRecord, str, TaskLedger, Path], list[TaskResult]],
+            *,
+            prepare: Callable[[Sequence[SampleRecord], str], Sequence[SampleRecord]] | None = None,
+            metrics_provider: Callable[[], Any] | None = None,
+            started_at: float | None = None,
+            initial_metrics: Mapping[str, Any] | None = None,
     ) -> RunSummary:
         run_id = (
-            run_id
-            or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
+                run_id
+                or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
         )
         workload_tag = make_workload_tag(self.config.workload_prefix, scenario, run_id)
         run_dir = self.config.output_dir / run_id
@@ -343,24 +402,29 @@ class DownloadEngine:
         ledger = TaskLedger(run_dir / "ledger.sqlite")
         recorder = MetricsRecorder(run_dir / "metrics.jsonl")
         results: list[TaskResult] = []
+        totals = _ProgressTotals()
         result_lock = threading.Lock()
 
         def completed_samples() -> int:
             with result_lock:
-                return len({item.sample_id for item in results if item.status == "success"})
+                return len(totals.successful_ids)
 
         reader = None
         if self.config.eecu.enabled:
             try:
                 start_path = run_dir / "eecu-start.json"
                 if not start_path.exists():
-                    start_path.write_text(json.dumps({"start": datetime.now(timezone.utc).isoformat(),
+                    # A torn identity file would block every resume of this run.
+                    start_temp = start_path.with_suffix(f".{uuid.uuid4().hex}.partial")
+                    start_temp.write_text(json.dumps({"start": datetime.now(timezone.utc).isoformat(),
                                                       "project": self.project, "workload_tag": workload_tag}))
+                    os.replace(start_temp, start_path)
                 identity = json.loads(start_path.read_text())
                 if identity['project'] != self.project or identity['workload_tag'] != workload_tag:
                     raise ValueError('Persisted EECU identity differs')
                 reader = (self.eecu_reader_factory(self.project, workload_tag) if self.eecu_reader_factory
-                          else CloudEECUReader(self.project, workload_tag, start=identity['start'], credentials=self.credentials))
+                          else CloudEECUReader(self.project, workload_tag, start=identity['start'],
+                                               credentials=self.credentials))
             except Exception as exc:
                 if self.config.eecu.required:
                     ledger.close()
@@ -433,11 +497,13 @@ class DownloadEngine:
                         ]
                         with result_lock:
                             results.extend(batch)
+                            for item in batch:
+                                totals.add(item)
                         for item in batch:
                             ledger.record(item)
                             recorder.append(item)
                         self._log_progress(
-                            results,
+                            totals,
                             len(samples),
                             started,
                             monitor,
@@ -503,19 +569,19 @@ class DownloadEngine:
         return summary
 
     def _patch_worker(
-        self,
-        sample: SampleRecord,
-        workload_tag: str,
-        ledger: TaskLedger,
-        run_dir: Path,
-        collection_builder: CollectionBuilder,
-        bands: tuple[str, ...],
-        grid_spec: PatchGrid,
-        grid_builder: Callable[[SampleRecord, PatchGrid], Mapping[str, Any]] | None,
-        selection: SceneSelection,
-        mask_builder: MaskBuilder | None,
-        scene_resolver: Any | None,
-        skip_metadata_lookup: bool = False,
+            self,
+            sample: SampleRecord,
+            workload_tag: str,
+            ledger: TaskLedger,
+            run_dir: Path,
+            collection_builder: CollectionBuilder,
+            bands: tuple[str, ...],
+            grid_spec: PatchGrid,
+            grid_builder: Callable[[SampleRecord, PatchGrid], Mapping[str, Any]] | None,
+            selection: SceneSelection,
+            mask_builder: MaskBuilder | None,
+            scene_resolver: Any | None,
+            skip_metadata_lookup: bool = False,
     ) -> list[TaskResult]:
         if sample.date is None:
             raise ValueError(f"Patch sample {sample.sample_id} has no target date")
@@ -559,16 +625,16 @@ class DownloadEngine:
             scene_date = _iso_from_millis(props.get("scene_time"))
             task_id = f"{_safe_name(sample.sample_id)}-{_safe_name(scene_id)}"
             output = (
-                run_dir
-                / "images"
-                / _safe_name(sample.sample_id)
-                / f"{index:03d}_{_safe_name(scene_id)}.tif"
+                    run_dir
+                    / "images"
+                    / _safe_name(sample.sample_id)
+                    / f"{index:03d}_{_safe_name(scene_id)}.tif"
             )
             mask_path = (
-                run_dir
-                / "masks"
-                / _safe_name(sample.sample_id)
-                / f"{index:03d}_{_safe_name(scene_id)}_mask.tif"
+                    run_dir
+                    / "masks"
+                    / _safe_name(sample.sample_id)
+                    / f"{index:03d}_{_safe_name(scene_id)}_mask.tif"
             )
             if ledger.status(task_id) == "success" and self._valid_file(output):
                 results.append(
@@ -624,19 +690,19 @@ class DownloadEngine:
         return results
 
     def _patch_worker_resolved(
-        self,
-        sample: SampleRecord,
-        workload_tag: str,
-        ledger: TaskLedger,
-        run_dir: Path,
-        collection: Any,
-        bands: tuple[str, ...],
-        grid_spec: PatchGrid,
-        grid_builder: Callable[[SampleRecord, PatchGrid], Mapping[str, Any]] | None,
-        selection: SceneSelection,
-        mask_builder: MaskBuilder | None,
-        scene_resolver: Any,
-        collection_seconds: float,
+            self,
+            sample: SampleRecord,
+            workload_tag: str,
+            ledger: TaskLedger,
+            run_dir: Path,
+            collection: Any,
+            bands: tuple[str, ...],
+            grid_spec: PatchGrid,
+            grid_builder: Callable[[SampleRecord, PatchGrid], Mapping[str, Any]] | None,
+            selection: SceneSelection,
+            mask_builder: MaskBuilder | None,
+            scene_resolver: Any,
+            collection_seconds: float,
     ) -> list[TaskResult]:
         candidates: list[SceneRecord] = scene_resolver.candidates(sample)
         if not candidates:
@@ -692,16 +758,16 @@ class DownloadEngine:
             scene_date = scene.acquired_at.isoformat()
             task_id = f"{_safe_name(sample.sample_id)}-{_safe_name(scene.scene_id)}"
             output = (
-                run_dir
-                / "images"
-                / _safe_name(sample.sample_id)
-                / f"{accepted:03d}_{_safe_name(scene.scene_id)}.tif"
+                    run_dir
+                    / "images"
+                    / _safe_name(sample.sample_id)
+                    / f"{accepted:03d}_{_safe_name(scene.scene_id)}.tif"
             )
             mask_path = (
-                run_dir
-                / "masks"
-                / _safe_name(sample.sample_id)
-                / f"{accepted:03d}_{_safe_name(scene.scene_id)}_mask.tif"
+                    run_dir
+                    / "masks"
+                    / _safe_name(sample.sample_id)
+                    / f"{accepted:03d}_{_safe_name(scene.scene_id)}_mask.tif"
             )
             if ledger.status(task_id) == "success" and self._valid_file(output):
                 results.append(
@@ -875,12 +941,12 @@ class DownloadEngine:
         return results
 
     def _probe_quality(
-        self,
-        image: Any,
-        grid: Mapping[str, Any],
-        workload_tag: str,
-        quality_band: str,
-        min_clear_fraction: float,
+            self,
+            image: Any,
+            grid: Mapping[str, Any],
+            workload_tag: str,
+            quality_band: str,
+            min_clear_fraction: float,
     ) -> _QualityProbe:
         """Download a one-band byte mask before requesting a full multispectral patch."""
         try:
@@ -938,11 +1004,11 @@ class DownloadEngine:
         )
 
     def _select_scenes(
-        self,
-        collection: Any,
-        target: datetime,
-        selection: SceneSelection,
-        workload_tag: str,
+            self,
+            collection: Any,
+            target: datetime,
+            selection: SceneSelection,
+            workload_tag: str,
     ) -> tuple[Any, list[Mapping[str, Any]]]:
         selected = self._order_scenes(collection, target, selection)
         image_list = selected.toList(selection.max_scenes)
@@ -962,7 +1028,7 @@ class DownloadEngine:
         return selected, metadata
 
     def _order_scenes(
-        self, collection: Any, target: datetime, selection: SceneSelection
+            self, collection: Any, target: datetime, selection: SceneSelection
     ) -> Any:
         start = target + timedelta(days=selection.start_offset_days)
         end = target + timedelta(days=selection.end_offset_days + 1)
@@ -982,22 +1048,22 @@ class DownloadEngine:
         return selected.limit(selection.max_scenes)
 
     def _download_pixels(
-        self,
-        task_id: str,
-        sample_id: str,
-        image: Any,
-        bands: list[str],
-        grid: Mapping[str, Any],
-        workload_tag: str,
-        output: Path,
-        mask_output: Path | None,
-        scene_id: str,
-        scene_date: str | None,
-        *,
-        data_band_count: int,
-        quality_required: bool = False,
-        min_clear_fraction: float = 0.0,
-        timings: Mapping[str, float] | None = None,
+            self,
+            task_id: str,
+            sample_id: str,
+            image: Any,
+            bands: list[str],
+            grid: Mapping[str, Any],
+            workload_tag: str,
+            output: Path,
+            mask_output: Path | None,
+            scene_id: str,
+            scene_date: str | None,
+            *,
+            data_band_count: int,
+            quality_required: bool = False,
+            min_clear_fraction: float = 0.0,
+            timings: Mapping[str, float] | None = None,
     ) -> TaskResult:
         output.parent.mkdir(parents=True, exist_ok=True)
         if mask_output:
@@ -1014,6 +1080,7 @@ class DownloadEngine:
                 if mask_output
                 else None
             )
+            data_temp: Path | None = None
             try:
                 compute_started = time.monotonic()
                 payload = self.ee.data.computePixels(
@@ -1091,11 +1158,13 @@ class DownloadEngine:
                         "local_qa_and_split": time.monotonic() - local_started,
                     },
                     retained_bytes=output.stat().st_size
-                    + (mask_output.stat().st_size if mask_output else 0),
+                                   + (mask_output.stat().st_size if mask_output else 0),
                 )
             except Exception as exc:  # noqa: BLE001 - transient remote errors are retried
                 error = exc
                 temp.unlink(missing_ok=True)
+                if data_temp:
+                    data_temp.unlink(missing_ok=True)
                 if mask_temp:
                     mask_temp.unlink(missing_ok=True)
                 if _is_missing_image_error(exc) or _PAYLOAD_LIMIT_ERROR.search(str(exc)):
@@ -1119,13 +1188,13 @@ class DownloadEngine:
 
     @staticmethod
     def _split_internal_bands(
-        combined: Path,
-        image_output: Path,
-        mask_output: Path | None,
-        *,
-        data_band_count: int,
-        quality_required: bool,
-        min_clear_fraction: float,
+            combined: Path,
+            image_output: Path,
+            mask_output: Path | None,
+            *,
+            data_band_count: int,
+            quality_required: bool,
+            min_clear_fraction: float,
     ) -> tuple[float | None, bool]:
         try:
             import rasterio
@@ -1156,15 +1225,15 @@ class DownloadEngine:
             return clear_fraction, True
 
     def _point_worker(
-        self,
-        sample: SampleRecord,
-        workload_tag: str,
-        ledger: TaskLedger,
-        run_dir: Path,
-        collection_builder: CollectionBuilder,
-        bands: tuple[str, ...],
-        scale: float,
-        scene_resolver: Any | None,
+            self,
+            sample: SampleRecord,
+            workload_tag: str,
+            ledger: TaskLedger,
+            run_dir: Path,
+            collection_builder: CollectionBuilder,
+            bands: tuple[str, ...],
+            scale: float,
+            scene_resolver: Any | None,
     ) -> TaskResult:
         task_id = f"{_safe_name(sample.sample_id)}-timeseries"
         output = run_dir / "timeseries" / f"{_safe_name(sample.sample_id)}.csv"
@@ -1311,14 +1380,14 @@ class DownloadEngine:
 
     @staticmethod
     def _summary(
-        run_id: str,
-        workload_tag: str,
-        total: int,
-        results: Sequence[TaskResult],
-        elapsed: float,
-        monitor: EECUMonitor,
-        stopped: bool,
-        catalog_metrics: Mapping[str, Any] | None = None,
+            run_id: str,
+            workload_tag: str,
+            total: int,
+            results: Sequence[TaskResult],
+            elapsed: float,
+            monitor: EECUMonitor,
+            stopped: bool,
+            catalog_metrics: Mapping[str, Any] | None = None,
     ) -> RunSummary:
         statuses: dict[str, set[str]] = {}
         for item in results:
@@ -1339,10 +1408,10 @@ class DownloadEngine:
             bytes_downloaded=byte_count,
             elapsed_seconds=elapsed,
             samples_per_second=succeeded / elapsed if elapsed else 0.0,
-            bandwidth_mib_per_second=byte_count / (1024**2) / elapsed if elapsed else 0.0,
+            bandwidth_mib_per_second=byte_count / (1024 ** 2) / elapsed if elapsed else 0.0,
             retained_bytes=retained_bytes,
             useful_bandwidth_mib_per_second=(
-                retained_bytes / (1024**2) / elapsed if elapsed else 0.0
+                retained_bytes / (1024 ** 2) / elapsed if elapsed else 0.0
             ),
             completed_eecu_seconds=latest.completed_seconds if latest else None,
             in_progress_eecu_seconds=latest.in_progress_seconds if latest else None,
@@ -1353,17 +1422,17 @@ class DownloadEngine:
 
     @staticmethod
     def _log_progress(
-        results: Sequence[TaskResult],
-        total_samples: int,
-        started: float,
-        monitor: EECUMonitor,
-        resolver_stats: Any | None = None,
+            totals: _ProgressTotals,
+            total_samples: int,
+            started: float,
+            monitor: EECUMonitor,
+            resolver_stats: Any | None = None,
     ) -> None:
         elapsed = max(time.monotonic() - started, 1e-9)
-        completed_ids = {item.sample_id for item in results}
-        successful = len({item.sample_id for item in results if item.status == "success"})
-        bytes_downloaded = sum(item.bytes_downloaded for item in results)
-        retained_bytes = sum(item.retained_bytes for item in results)
+        completed_ids = totals.sample_ids
+        successful = len(totals.successful_ids)
+        bytes_downloaded = totals.bytes_downloaded
+        retained_bytes = totals.retained_bytes
         completion_rate = len(completed_ids) / elapsed
         eta = (total_samples - len(completed_ids)) / completion_rate if completion_rate else None
         eecu = monitor.latest
@@ -1385,8 +1454,8 @@ class DownloadEngine:
             elapsed,
             f"{eta:.1f}s" if eta is not None else "n/a",
             successful / elapsed,
-            bytes_downloaded / (1024**2) / elapsed,
-            retained_bytes / (1024**2) / elapsed,
+            bytes_downloaded / (1024 ** 2) / elapsed,
+            retained_bytes / (1024 ** 2) / elapsed,
             f"{eecu.completed_seconds:.2f}" if eecu is not None and eecu.completed_seconds is not None else "unavailable",
             f"{eecu.in_progress_seconds:.2f}" if eecu is not None and eecu.in_progress_seconds is not None else "unavailable",
             catalog_suffix,

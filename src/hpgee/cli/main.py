@@ -3,14 +3,15 @@ import argparse
 from importlib import import_module
 import sys
 
+# Sampling handlers keep their legacy subcommand, so their usage already names it.
 _COMMANDS = {
-    "sample": ("hpgee.cli.sampling", "run"),
-    "catalog": ("hpgee.cli.sampling", "catalog"),
-    "metadata": ("hpgee.cli.sampling", "metadata"),
-    "progress": ("hpgee.cli.sampling", "progress"),
-    "compute": ("hpgee.cli.computation", None),
-    "workflow": ("hpgee.workflows.detection", None),
-    "benchmark": ("hpgee.benchmarks.computation", None),
+    "sample": ("hpgee.cli.sampling", "run", "hpgee"),
+    "catalog": ("hpgee.cli.sampling", "catalog", "hpgee"),
+    "metadata": ("hpgee.cli.sampling", "metadata", "hpgee"),
+    "progress": ("hpgee.cli.sampling", "progress", "hpgee"),
+    "compute": ("hpgee.cli.computation", None, "hpgee compute"),
+    "workflow": ("hpgee.workflows.detection", None, "hpgee workflow"),
+    "benchmark": ("hpgee.benchmarks.computation", None, "hpgee benchmark"),
 }
 
 
@@ -23,6 +24,6 @@ def main(argv=None):
         parser.print_help()
         return 0 if argv else 2
     args = parser.parse_args(argv[:1])
-    module, prefix = _COMMANDS[args.command]
+    module, prefix, prog = _COMMANDS[args.command]
     remaining = ([prefix] if prefix else []) + argv[1:]
-    return import_module(module).main(remaining)
+    return import_module(module).main(remaining, prog=prog)

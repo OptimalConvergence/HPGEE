@@ -14,7 +14,7 @@ Labels carry valid interpretation support, source provenance, dates, geometry ac
 
 For the implemented HLS/SAR/DEM recipes and limitations, read [scientific recipes](computation/recipes.md). Validate saved pixels before changing scientific defaults.
 
-For reusable RF snapshots, fixed regional core/query/output plans, known-product GEESampler callbacks and candidate component indices, read [bounded APIs](computation/bounded-apis.md). These interfaces preserve the existing scientific recipe; they do not implement event tracking or select a production monthly detector.
+For reusable RF snapshots, fixed regional core/query/output plans, known-product transfer callbacks and candidate component indices, read [bounded APIs](computation/bounded-apis.md). These interfaces preserve the existing scientific recipe; they do not implement event tracking or select a production monthly detector.
 
 ## Keep the compute graph small
 
@@ -26,7 +26,7 @@ Use the standard endpoint first for complex composites/classification. High-volu
 
 For full-support HLS30 and S1 10/30m scene sequences, read [raw-series graph and delivery contract](computation/raw-series.md). These APIs are separate from RF features and derived observation packages.
 
-The computation package builds lazy recipes, trains representative RF models, creates small previews and prepares computation/export tasks. GEESampler owns pixel transfer, retry, resume and file acceptance. For an already-defined workflow result use `transfer.product_sampler_arguments(cfg, products)` with the existing engine; its resolver avoids catalog selection requests. Keep actual computePixels, transfer recovery and saved-pixel QA. Source-scene discovery still uses the source adapters; do not build a second pixel queue.
+The computation package builds lazy recipes, trains representative RF models, creates small previews and prepares computation/export tasks. `hpgee.transfer.engine.DownloadEngine` owns pixel transfer, retry, resume and file acceptance. For an already-defined workflow result use `transfer.product_sampler_arguments(cfg, products)` with the existing engine; its resolver avoids catalog selection requests. Keep actual computePixels, transfer recovery and saved-pixel QA. Source-scene discovery still uses the source adapters; do not build a second pixel queue.
 
 Use the same frozen recipe/grid/scene identity for API, EE Asset and Drive paths. Previews are visualization-only. ComputePixels has a 48 MB uncompressed response limit; calculate actual band dtype/QA payload and leave margin. Drive is an optional measured fallback, not a mandatory staging hop. Credentials and signed URLs stay out of manifests/logs.
 
@@ -42,7 +42,7 @@ For this user's shared cluster, apply `slurm-workflow` before long downloads or 
 
 For the user's samples → features → RF → inference → output workflow, use `hpgee.workflows.detection`. Do not export model assets. A result IMAGE asset may avoid repeating the feature/classifier graph when fetching boundaries and pixels; measure its queue, computation, transfer and QA before choosing it over direct transfer. Export scores, threshold candidates, frozen detection features, observation quality/time and independent auxiliaries. An acquisition clock is not a burning-time bound.
 
-Real GEESampler TIFFs may omit band descriptions. Package them with `workflow.finalize_transfer` using the frozen computePixels bandIds; preserve raw bytes and reject contradictory identities. Validate both binary probabilities, observation clocks/QA, unknown masks and boundary extent plus pixel union. EE Point GeoJSON may contain `geodesic=False`; omit that field only for Point reconstruction without changing coordinates or provenance.
+Real `DownloadEngine` TIFFs may omit band descriptions. Package them with `workflow.finalize_transfer` using the frozen computePixels bandIds; preserve raw bytes and reject contradictory identities. Validate both binary probabilities, observation clocks/QA, unknown masks and boundary extent plus pixel union. EE Point GeoJSON may contain `geodesic=False`; omit that field only for Point reconstruction without changing coordinates or provenance.
 
 Exercise the actual CLI, not just a mocked helper. Distinguish offline tests, serialized EE graph checks, authenticated source queries, trained/evaluated models, saved-pixel validation and accepted datasets. Report each at its actual evidence level. Keep source lists, job/task IDs, failures and current budgets in the calling project; add reusable skill lessons only after they are verified.
 
@@ -58,7 +58,7 @@ Compare standard interactive requests and Python-submitted asynchronous Batch on
 
 ## Samples-to-products entrypoint
 
-Use `python -m hpgee.workflows.detection --config CONFIG --manifest-only` for an offline frozen contract. Explicit computation runs samples → core6 features → direct lazy RF → inference → product raster and threshold candidate boundaries. `--sample-points` accepts already-authorized labeled Point supports, preserves provenance, samples on the frozen grid, and freezes the resulting local table before the existing RF validator; it does not invent labels or eligibility. `--transfer --hot-dir ALLOCATED_LOCAL_DIR` reuses GEESampler's existing download engine. The current workflow keeps DEM separate from RF, leaves VIIRS/GEDI unimplemented and explicit, and preserves unknown predictions as masked.
+Use `hpgee workflow --config CONFIG --manifest-only` (equivalently `python -m hpgee.workflows.detection`) for an offline frozen contract. Explicit computation runs samples → core6 features → direct lazy RF → inference → product raster and threshold candidate boundaries. `--sample-points` accepts already-authorized labeled Point supports, preserves provenance, samples on the frozen grid, and freezes the resulting local table before the existing RF validator; it does not invent labels or eligibility. `--transfer --hot-dir ALLOCATED_LOCAL_DIR` reuses the shared `DownloadEngine`. The current workflow keeps DEM separate from RF, leaves VIIRS/GEDI unimplemented and explicit, and preserves unknown predictions as masked.
 
 For measured runs, prefer `workflow.build_workflow` and `prepare_exports(..., asset_id=FRESH_PRODUCT)` when materializing the predicted image reduces graph recomputation. Submit this image with the existing task journal, reconcile its known operation, then obtain boundaries and pixels from that product. This is a prediction product Asset, not a classifier. Do not export/load model assets in this path. Keep image/table export prepared-only unless execution is authorized. `boundaries_from_raster` uses the identical output grid; bounded geometry overflow must switch to table export, never accept a prefix. `verify_artifacts` checks actual TIFF bands/grid/masks/threshold and actual GeoJSON candidate union before accepting saved products. Pixel consistency is not independent scientific accuracy.
 
