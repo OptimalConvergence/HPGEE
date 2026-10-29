@@ -1,0 +1,5 @@
+interface:
+  display_name: "Efficient GEE / HPGEE"
+  short_description: "Earth Engine computation, sampling, and recovery"
+policy:
+  allow_implicit_invocation: false

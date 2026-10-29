@@ -19,3 +19,12 @@ artifacts/v0_5*/
 *.tiff
 *.png
 *.jsonl
+
+# Local runtime state and credentials are never release source.
+geesampler-data/
+*.key
+*.pem
+credentials*.json
+service-account*.json
+.env.*
+!.env.example

@@ -1,11 +1,11 @@
 [build-system]
-requires = ["hatchling>=1.24"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "geesampler"
-version = "0.4.0"
-description = "Concurrent, resumable point and image-patch sampling from Google Earth Engine"
+name = "hpgee"
+version = "0.1.0"
+description = "High Performance Google Earth Engine computation and resumable sampling"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.10"
@@ -20,9 +20,11 @@ classifiers = [
   "Topic :: Scientific/Engineering :: GIS",
 ]
 dependencies = [
-  "earthengine-api>=1.5",
+  "earthengine-api>=1.7",
   "httplib2>=0.22",
   "mgrs>=1.5",
+  "numpy>=1.24",
+  "shapely>=2.0",
   "pandas>=2.0",
   "pyproj>=3.5",
   "PyYAML>=6.0",
@@ -46,19 +48,23 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/OptimalConvergence/GEESampler"
-Repository = "https://github.com/OptimalConvergence/GEESampler"
-Issues = "https://github.com/OptimalConvergence/GEESampler/issues"
+Homepage = "https://github.com/OptimalConvergence/HPGEE"
+Repository = "https://github.com/OptimalConvergence/HPGEE"
+Issues = "https://github.com/OptimalConvergence/HPGEE/issues"
 
 [project.scripts]
 geesampler = "geesampler.cli:main"
+geecompute = "geecomputation.cli:main"
+geecompute-benchmark = "geecomputation.benchmark:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/geesampler"]
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["geesampler*", "geecomputation*"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100

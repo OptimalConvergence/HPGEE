@@ -1,0 +1,10 @@
+{
+  "year": 2020,
+  "months": 12,
+  "synthetic": true,
+  "purpose": "formula unit test only; not Earth's actual area",
+  "strata": [
+    {"stratum":"event","activity":"event","area_month_km2":100},
+    {"stratum":"quiet","activity":"low_activity_non_event","area_month_km2":900}
+  ]
+}

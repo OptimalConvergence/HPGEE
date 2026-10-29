@@ -1,0 +1,23 @@
+# Metadata configuration search
+
+Image-patch tuning does not establish metadata settings. The original 2-worker metadata configuration was conservative, not a measured optimum. Rank useful **validated unique records/s**, including request, parse and committed database work. Report TCP bandwidth separately: decoded response bytes and SQLite growth are not network bytes.
+
+## Use a bounded staged grid
+
+Before a long new workload, choose a trial budget proportional to the expected savings and retain valid trial outputs. Establish the endpoint, proxy, collection, schema, representative dates and destination database size. A small fresh database can hide the large catalog's index/write costs. Copy an immutable representative catalog in Slurm when needed; exclude setup time from phase timing but report its cost.
+
+Start with a coarse worker ladder, repeat in reverse order, and refine near a plateau or decline. Include enough independent windows to exercise every worker. Hold the HTTP pool at least as large as the largest worker candidate for this comparison. Count existing production against the project concurrency budget. Stop escalation on throttling, errors, resource pressure, a reproducible plateau, or the quota ceiling; **do not require bandwidth to fall**. A ceiling-limited best is only the best tested configuration.
+
+Next compare a few pool sizes around the promising worker count, for example half, equal and double. A deliberately undersized blocking pool tests a pool bottleneck; never describe it as a valid worker-scaling comparison. A larger pool alone does not create more requests. Reinitialize EE only between completed phases, preferably in fresh subprocesses.
+
+Compare modest Slurm allocations where they could change performance. Record actual CPU affinity, job CPUs/RAM and node, not host totals. Keep the node constant; otherwise acknowledge hardware/storage/time confounding. CPU saturation supports more CPUs; memory pressure supports more RAM. Serialized writes or remote latency alone do not. Prune unpromising axes rather than blindly testing every Cartesian combination.
+
+Use disjoint comparable date blocks, reverse or randomize order, and validate complete pagination against independent counts. Measure request latency, errors/retries, CPU/RAM, write-lock wait/hold and compressed receive traffic. A larger block or deeper page chain changes the experiment; do not combine its rates indiscriminately with short-window rounds. Prefer the smallest stable configuration near maximum throughput (the current experiment uses a 10% band). Record pilot evidence separately from production confirmation and retest different collection families.
+
+## Confirm and deploy
+
+Do not make completion of every grid axis a prerequisite for useful production. Once repeated representative trials pass correctness checks and support a substantial improvement, a checkpoint-preserving production rollout can provide the longer-page-chain confirmation. Continue optional refinement only within the remaining request/resource budget. A concurrent live baseline can support a rollout gate, but shared project/storage contention and date differences limit causal precision. Preserve page cursors and one writer per destination. Subdivide only untouched pending windows, remap spatial IDs when importing trial rows, and keep scene/coverage commits consistent. Coordinate successor dependencies and failure watchers before an intentional replacement. Gate failures stop automation for diagnosis; they must not silently select a slower or invalid result.
+
+On this machine, the authorized September 13 pipeline is `sample_collection/benchmark_metadata_grid.py` with `slurm/benchmark_metadata_grid.sbatch`. Its controller supports deep confirmation and a gated S2 replacement; the user subsequently prioritized the measured 32-worker candidate and retired the remaining unstarted tests. Scripts are tied to recorded dates, jobs and paths and **must not be blindly rerun for another collection**. Inspect `reports/metadata-grid-2026-09-13/DESIGN.md` first. `slurm/metadata_grid_progress.sh` prints compact saved results on demand. Completed phases are evidence, not new timed runs; interrupted windows need recovery before a fresh timing block.
+
+Leave stable stages under Slurm, with durable phase/selection/rollout records and failure-only diagnostic hooks. Healthy completion does not require an agent call. This avoids spending context on routine polling while still allowing configuration selection and authorized rollout to proceed. Keep empirical results in `evidence.md`; do not claim an uncompleted grid has established an optimum.

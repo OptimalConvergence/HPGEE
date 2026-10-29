@@ -1,0 +1,21 @@
+{
+  "project": "REPLACE_WITH_FUNDED_GEE_PROJECT",
+  "bbox": [30.0, -2.0, 30.05, -1.95],
+  "start": "2020-08-01T00:00:00Z",
+  "end": "2020-09-01T00:00:00Z",
+  "pre_start": "2020-07-01T00:00:00Z",
+  "pre_end": "2020-08-01T00:00:00Z",
+  "grid": {
+    "crs": "EPSG:32736",
+    "transform": [30, 0, 166000, 0, -30, 9785000],
+    "width": 128,
+    "height": 128
+  },
+  "output": "outputs/small-roi",
+  "budget_eecu_hours": 100,
+  "seed": 42,
+  "auth": {"high_volume": false},
+  "labels": {},
+  "s1": {},
+  "dem": false
+}

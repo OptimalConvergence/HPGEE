@@ -1,0 +1,8 @@
+{
+  "synthetic": true,
+  "purpose": "formula unit test only; not observed performance",
+  "metrics": [
+    {"stratum":"event","area_month_km2":10,"compute_wall_seconds":20,"eecu_seconds":30,"payload_bytes":1000,"queue_seconds":2,"synthetic":true,"run_id":"synthetic-one"},
+    {"stratum":"quiet","area_month_km2":10,"compute_wall_seconds":10,"eecu_seconds":20,"payload_bytes":500,"queue_seconds":3,"synthetic":true,"run_id":"synthetic-two"}
+  ]
+}
