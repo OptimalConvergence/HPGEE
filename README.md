@@ -60,8 +60,10 @@ the `all` extra used above.
 On the maintained cluster, the physical repository and skill directory is
 `/nfs-data0/home/lyh/OutSideSkillLib/efficient-gee`.
 `/nfs-data0/home/lyh/workspace/projects/HPGEE` is its project entry point.
-The previous `GEESampler` and `GEEComputation` project paths remain compatibility
-links to the same source. Use the HPGEE path for new work.
+The previous `GEESampler` and `GEEComputation` project entries have been
+retired. Their original sources and Git history are archived under
+`/nfs-data0/home/lyh/workspace/home-organization/backups`. Use the HPGEE
+path for new work; frozen historical runs may retain the former path names.
 
 The `geesampler-upstream` remote preserves the former repository URL; `origin`
 targets `OptimalConvergence/HPGEE`. Configuring a remote does not create or publish
