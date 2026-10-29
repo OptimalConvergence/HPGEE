@@ -241,7 +241,7 @@ class DownloadEngine:
 
     def download_frozen_blocks(
             self, records, *, image_builder, bands, grid_builder,
-            verified=None, publish=None, writers=2, scenario="raw", run_id=None,
+            verified=None, publish=None, writers=2, scenario="raw", run_id=None, progress=None,
     ):
         """Transfer exact frozen expressions through the existing engine.
 
@@ -249,6 +249,7 @@ class DownloadEngine:
         durable source/grid/recipe identity and file integrity before reuse.
         ``publish`` validates and publishes completed local payloads; a failure
         is retained as a failed task. Writer concurrency is separate from HTTP.
+        ``progress`` receives each terminal TaskResult after it is recorded.
         """
         if writers < 1:
             raise ValueError('Positive writer count required')
@@ -277,7 +278,7 @@ class DownloadEngine:
                     result = replace(result, status='failed', error=redact_error(exc))
             return [result]
 
-        return self._run(list(records), scenario, run_id, worker)
+        return self._run(list(records), scenario, run_id, worker, progress=progress)
 
     def download_patch_series(
             self,
@@ -386,6 +387,7 @@ class DownloadEngine:
             metrics_provider: Callable[[], Any] | None = None,
             started_at: float | None = None,
             initial_metrics: Mapping[str, Any] | None = None,
+            progress: Callable[[TaskResult], None] | None = None,
     ) -> RunSummary:
         run_id = (
                 run_id
@@ -404,6 +406,15 @@ class DownloadEngine:
         results: list[TaskResult] = []
         totals = _ProgressTotals()
         result_lock = threading.Lock()
+
+        def report_progress(item: TaskResult) -> None:
+            nonlocal progress
+            if progress is not None:
+                try:
+                    progress(item)
+                except Exception as exc:
+                    progress = None
+                    LOGGER.warning("Progress callback disabled (%s)", type(exc).__name__)
 
         def completed_samples() -> int:
             with result_lock:
@@ -502,6 +513,7 @@ class DownloadEngine:
                         for item in batch:
                             ledger.record(item)
                             recorder.append(item)
+                            report_progress(item)
                         self._log_progress(
                             totals,
                             len(samples),
@@ -531,6 +543,7 @@ class DownloadEngine:
                 )
                 results.append(result)
                 recorder.append(result)
+                report_progress(result)
         elapsed = time.monotonic() - started
         catalog_metrics: dict[str, Any] = dict(initial_metrics or {})
         catalog_metrics["planning_seconds"] = planning_seconds
