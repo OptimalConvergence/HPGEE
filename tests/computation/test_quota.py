@@ -1,4 +1,4 @@
-from geecomputation.quota import read_quota, monthly_limit_hours
+from hpgee.accounting.quota import read_quota, monthly_limit_hours
 
 
 def test_month_limit_is_not_unknown_or_unlimited_sentinel():

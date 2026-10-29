@@ -4,11 +4,11 @@ from unittest.mock import patch
 
 import pytest
 
-from geesampler.events import record_outcome
+from hpgee.reporting.events import record_outcome
 
 
 def test_success_is_silent_and_does_not_invoke_hook(tmp_path, capsys):
-    with patch("geesampler.events.subprocess.run") as hook:
+    with patch("hpgee.reporting.events.subprocess.run") as hook:
         event = record_outcome(
             tmp_path, "job-1", ok=True, details={"validated": True}, on_error=["unused"]
         )

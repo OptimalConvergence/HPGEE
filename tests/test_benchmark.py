@@ -1,9 +1,9 @@
 import csv
 from datetime import datetime, timezone
 
-from geesampler import benchmark
-from geesampler.catalog import S2SceneCatalog, SceneRecord
-from geesampler.monitoring import EECUSnapshot
+import hpgee.benchmarks.sampling as benchmark
+from hpgee.catalog.catalog import S2SceneCatalog, SceneRecord
+from hpgee.accounting.sampling import EECUSnapshot
 
 
 def test_refresh_benchmark_eecu(tmp_path, monkeypatch):

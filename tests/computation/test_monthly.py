@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import pytest
 
-from geecomputation.monthly import resolve_burn_month_support
+from hpgee.compute.monthly import resolve_burn_month_support
 
 
 def endpoint(time):

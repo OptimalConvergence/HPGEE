@@ -8,14 +8,8 @@ from unittest.mock import patch
 import pytest
 from google.cloud import monitoring_v3 as monitoring_v3
 
-from geesampler.models import EECUMonitorConfig
-from geesampler.monitoring import (
-    COMPLETED_METRIC,
-    IN_PROGRESS_METRIC,
-    CloudEECUReader,
-    EECUMonitor,
-    MonitoringRESTClient,
-)
+from hpgee.core.models import EECUMonitorConfig
+from hpgee.accounting.sampling import COMPLETED_METRIC, IN_PROGRESS_METRIC, CloudEECUReader, EECUMonitor, MonitoringRESTClient
 
 
 PROJECT = "project-x"
@@ -104,7 +98,7 @@ def test_fixed_start_cumulative_prefix_survives_30_minute_boundary_and_late_poin
     elapsed_minutes = (29, 31, 65)
     expected_ends = [START + timedelta(minutes=minute) for minute in elapsed_minutes]
     snapshots = []
-    with patch("geesampler.monitoring.datetime", FrozenClock):
+    with patch("hpgee.accounting.sampling.datetime", FrozenClock):
         for current in expected_ends:
             FrozenClock.current = current
             snapshots.append(monitor.poll_once())
@@ -166,7 +160,7 @@ def test_rest_pages_keep_int_and_float_values_deduplicate_and_leave_empty_metric
     client = MonitoringRESTClient(session=session)
     reader = CloudEECUReader(PROJECT, TAG, start=START, client=client)
     FrozenClock.current = START + timedelta(minutes=65)
-    with patch("geesampler.monitoring.datetime", FrozenClock):
+    with patch("hpgee.accounting.sampling.datetime", FrozenClock):
         snapshot = reader.read()
 
     assert snapshot.completed_seconds == 15.5
@@ -186,7 +180,7 @@ def test_empty_monitoring_response_is_unknown_not_zero():
 
     reader = CloudEECUReader(PROJECT, TAG, start=START, client=EmptyClient())
     FrozenClock.current = START + timedelta(minutes=65)
-    with patch("geesampler.monitoring.datetime", FrozenClock):
+    with patch("hpgee.accounting.sampling.datetime", FrozenClock):
         snapshot = reader.read()
 
     assert snapshot.completed_seconds is None
@@ -211,7 +205,7 @@ def test_monitoring_timeout_is_recorded_as_unavailable_not_zero(tmp_path):
         lambda: 0,
     )
     FrozenClock.current = START + timedelta(minutes=65)
-    with patch("geesampler.monitoring.datetime", FrozenClock):
+    with patch("hpgee.accounting.sampling.datetime", FrozenClock):
         result = monitor.poll_once()
 
     assert result is None
@@ -237,6 +231,6 @@ def test_reader_rejects_wrong_monitoring_project_or_workload_tag(project, tag):
 
     reader = CloudEECUReader(PROJECT, TAG, start=START, client=MismatchedClient())
     FrozenClock.current = START + timedelta(minutes=65)
-    with patch("geesampler.monitoring.datetime", FrozenClock):
+    with patch("hpgee.accounting.sampling.datetime", FrozenClock):
         with pytest.raises(ValueError, match="project/tag mismatch"):
             reader.read()

@@ -7,11 +7,7 @@ from ee import apitestcase
 import numpy as np
 import pytest
 
-from geecomputation.observations import (
-    HLS_OBSERVATION_BANDS, S1_OBSERVATION_BANDS, enumerate_observations,
-    observation_query_plan, inspect_sources, observation_image,
-    hls_observation_values, s1_observation_values,
-)
+from hpgee.planning.observations import HLS_OBSERVATION_BANDS, S1_OBSERVATION_BANDS, enumerate_observations, observation_query_plan, inspect_sources, observation_image, hls_observation_values, s1_observation_values
 
 HLS = 'NASA/HLS/HLSL30/v002'
 S1 = 'COPERNICUS/S1_GRD'

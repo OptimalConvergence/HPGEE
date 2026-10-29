@@ -3,12 +3,12 @@ import numpy as np
 import pytest
 import ee
 from ee import apitestcase
-from geecomputation.config import Config, utc_datetime
+from hpgee.workflows.config import Config, utc_datetime
 from .test_contract import configuration
 
 
 def test_candidate_mask_preserves_unknown_and_threshold():
-    from geecomputation.workflow import candidate_pixels
+    from hpgee.workflows.detection import candidate_pixels
     scores=np.array([.49,.5,.9,np.nan,.8])
     valid=np.array([True,True,False,True,True])
     result=candidate_pixels(scores,valid,.5)
@@ -18,12 +18,12 @@ def test_candidate_mask_preserves_unknown_and_threshold():
 
 
 def test_contract_freezes_grid_aux_and_threshold():
-    from geecomputation.workflow import workflow_contract
+    from hpgee.workflows.detection import workflow_contract
     cfg=Config.from_dict(configuration())
     a=workflow_contract(cfg,threshold=.5); b=workflow_contract(cfg,threshold=.6)
     assert a['contract_sha256']!=b['contract_sha256']
     assert a['grid']==cfg.pixel_grid()
-    assert a['rf_inputs']==list(__import__('geecomputation.features',fromlist=['RF_BANDS']).RF_BANDS)
+    assert a['rf_inputs']==list(__import__('hpgee.compute.features',fromlist=['RF_BANDS']).RF_BANDS)
     assert a['aux']['DEM']['enters_rf'] is False
     assert 'pre_time_ms' in a['raster_bands'] and 'post_valid_count' in a['raster_bands']
     raw=configuration();raw['rf']={'feature_set':'core6_dem'}
@@ -31,7 +31,7 @@ def test_contract_freezes_grid_aux_and_threshold():
 
 
 def test_partial_artifacts_cannot_pass_acceptance(tmp_path):
-    from geecomputation.workflow import verify_artifacts,workflow_contract
+    from hpgee.workflows.detection import verify_artifacts, workflow_contract
     cfg=Config.from_dict(configuration());contract=workflow_contract(cfg)
     with pytest.raises(ValueError,match='raster'): verify_artifacts(tmp_path/'missing.tif',tmp_path/'missing.geojson',contract)
     path=tmp_path/'partial.tif';path.write_bytes(b'partial')
@@ -40,7 +40,7 @@ def test_partial_artifacts_cannot_pass_acceptance(tmp_path):
 
 def test_finalize_geesampler_tiff_without_band_descriptions(tmp_path):
     import rasterio
-    from geecomputation.workflow import finalize_transfer
+    from hpgee.workflows.detection import finalize_transfer
     raster,_,contract=saved_products(tmp_path)
     with rasterio.open(raster,'r+') as ds:
         original=ds.read();ds.descriptions=(None,)*ds.count
@@ -53,7 +53,7 @@ def test_finalize_geesampler_tiff_without_band_descriptions(tmp_path):
 
 
 def test_finalize_rejects_changed_transfer_band_order(tmp_path):
-    from geecomputation.workflow import finalize_transfer
+    from hpgee.workflows.detection import finalize_transfer
     raster,_,contract=saved_products(tmp_path)
     bands=list(contract['raster_bands']);bands[0],bands[1]=bands[1],bands[0]
     with pytest.raises(ValueError,match='bandIds'):
@@ -68,7 +68,7 @@ def offline_ee():
 
 
 def test_product_graph_masks_candidate_and_vectors_on_output_grid(offline_ee):
-    from geecomputation.workflow import build_products,workflow_contract,prepare_exports
+    from hpgee.workflows.detection import build_products, workflow_contract, prepare_exports
     cfg=Config.from_dict(configuration())
     scores=ee.Image.constant([.2,.8]).rename(['score_unburned','score_burned'])
     products=build_products(cfg,scores,threshold=.5)
@@ -82,7 +82,7 @@ def test_product_graph_masks_candidate_and_vectors_on_output_grid(offline_ee):
 
 
 def test_explicit_aux_context_uses_same_frozen_image_and_preserves_default_contract(offline_ee,monkeypatch):
-    from geecomputation import workflow
+    import hpgee.workflows.detection as workflow
     cfg=Config.from_dict(configuration());before=workflow.workflow_contract(cfg)
     aux=ee.Image.constant([1,2,3,4]).rename(['elevation','slope','aspect_sin','aspect_cos'])
     monkeypatch.setattr(workflow,'dem_image',lambda cfg:pytest.fail('frozen aux must bypass dynamic DEM selection'))
@@ -96,8 +96,8 @@ def test_explicit_aux_context_uses_same_frozen_image_and_preserves_default_contr
 
 
 def test_caller_auxiliary_context_does_not_claim_default_dem_collection():
-    from geecomputation.workflow import workflow_contract
-    from geecomputation.features import DEM_COLLECTION
+    from hpgee.workflows.detection import workflow_contract
+    from hpgee.compute.features import DEM_COLLECTION
     cfg=Config.from_dict(configuration())
     default=workflow_contract(cfg)
     explicit=workflow_contract(cfg,aux_context_sha256='a'*64)
@@ -112,14 +112,14 @@ def test_caller_auxiliary_context_does_not_claim_default_dem_collection():
 @pytest.mark.parametrize('kwargs',[{'aux_context_sha256':'a'*64},{'aux':1},
     {'aux':1,'aux_context_sha256':'bad'},{'aux':1,'aux_context_sha256':True}])
 def test_auxiliary_context_requires_both_explicit_image_and_sha(offline_ee,kwargs):
-    from geecomputation.workflow import build_products
+    from hpgee.workflows.detection import build_products
     with pytest.raises(ValueError,match='aux'):
         build_products(Config.from_dict(configuration()),ee.Image.constant([.2,.8]),**kwargs)
 
 
 def test_pixel_qa_can_accept_explicit_no_observation_but_not_false_unburned(tmp_path):
     import rasterio
-    from geecomputation.workflow import verify_pixels,verify_artifacts
+    from hpgee.workflows.detection import verify_pixels, verify_artifacts
     raster,boundary,contract=saved_products(tmp_path)
     assert verify_pixels(raster,contract)['observed_pixels']==1
     with rasterio.open(raster,'r+') as ds:
@@ -135,7 +135,7 @@ def test_pixel_qa_can_accept_explicit_no_observation_but_not_false_unburned(tmp_
 
 def test_pixel_qa_rejects_bad_source_clock_even_without_vector_check(tmp_path):
     import rasterio
-    from geecomputation.workflow import verify_pixels
+    from hpgee.workflows.detection import verify_pixels
     raster,_,contract=saved_products(tmp_path)
     with rasterio.open(raster,'r+') as ds:
         data=ds.read();data[contract['raster_bands'].index('pre_time_ms'),0,0]=0;ds.write(data)
@@ -144,13 +144,13 @@ def test_pixel_qa_rejects_bad_source_clock_even_without_vector_check(tmp_path):
 
 @pytest.mark.parametrize('flag',['false',1,None,[],{}])
 def test_no_observation_requires_explicit_boolean_opt_in(tmp_path,flag):
-    from geecomputation.workflow import verify_pixels
+    from hpgee.workflows.detection import verify_pixels
     raster,_,contract=saved_products(tmp_path)
     with pytest.raises(ValueError,match='bool'):verify_pixels(raster,contract,allow_no_observation=flag)
 
 
 def test_sampling_preserves_source_properties_and_uses_fixed_projection(offline_ee,tmp_path):
-    from geecomputation.workflow import sample_points
+    from hpgee.workflows.detection import sample_points
     points=tmp_path/'points.geojson'
     points.write_text(json.dumps({'type':'FeatureCollection','features':[{'type':'Feature','geometry':{'type':'Point','coordinates':[30.01,-1.98]},'properties':{'label':1,'event_id':'e','support_id':'s','split':'train','label_source':'weak','label_eligible':True,'source_version':'NBAC2020','source_id':'agency-1'}}]}))
     samples,source=sample_points(Config.from_dict(configuration()),points)
@@ -161,7 +161,7 @@ def test_sampling_preserves_source_properties_and_uses_fixed_projection(offline_
 
 
 def test_sampling_accepts_actual_ee_point_roundtrip(offline_ee,tmp_path):
-    from geecomputation.workflow import sample_points
+    from hpgee.workflows.detection import sample_points
     points=tmp_path/'points.geojson'
     points.write_text(json.dumps({'type':'FeatureCollection','features':[{'type':'Feature',
         'geometry':{'type':'Point','coordinates':[-110.69097688980801,59.05641604117655],'geodesic':False},
@@ -174,7 +174,7 @@ def saved_products(tmp_path,*,partial=False):
     import rasterio
     from rasterio.transform import Affine
     from rasterio.warp import transform_geom
-    from geecomputation.workflow import workflow_contract
+    from hpgee.workflows.detection import workflow_contract
     raw=configuration();raw['grid']['width']=2;raw['grid']['height']=1
     contract=workflow_contract(Config.from_dict(raw));bands=contract['raster_bands']
     a=np.full((len(bands),1,2),-9999.,dtype='float64');idx={b:i for i,b in enumerate(bands)}
@@ -196,7 +196,7 @@ def saved_products(tmp_path,*,partial=False):
 
 
 def test_saved_pixel_acceptance_allows_independently_missing_aux(tmp_path):
-    from geecomputation.workflow import verify_artifacts
+    from hpgee.workflows.detection import verify_artifacts
     raster,boundary,contract=saved_products(tmp_path)
     result=verify_artifacts(raster,boundary,contract)
     assert result['observed_pixels']==1 and result['candidate_pixels']==1
@@ -204,7 +204,7 @@ def test_saved_pixel_acceptance_allows_independently_missing_aux(tmp_path):
 
 
 def test_saved_raster_boundaries_preserve_candidate_union_without_ee(tmp_path, monkeypatch):
-    from geecomputation.workflow import boundaries_from_saved_raster, verify_artifacts
+    from hpgee.workflows.detection import boundaries_from_saved_raster, verify_artifacts
     raster, _, contract = saved_products(tmp_path)
     monkeypatch.setattr(ee.data, 'computeValue',
                         lambda *_: pytest.fail('saved-mask polygonization must stay local'))
@@ -219,7 +219,7 @@ def test_saved_raster_boundaries_preserve_candidate_union_without_ee(tmp_path, m
 def test_saved_raster_boundaries_use_eight_connectivity_and_cap(tmp_path):
     import rasterio
     from rasterio.transform import from_origin
-    from geecomputation.workflow import boundaries_from_saved_raster
+    from hpgee.workflows.detection import boundaries_from_saved_raster
     raster = tmp_path / 'candidate.tif'
     with rasterio.open(raster, 'w', driver='GTiff', width=3, height=3, count=1,
                        dtype='uint8', crs='EPSG:32612',
@@ -235,9 +235,7 @@ def test_saved_raster_boundaries_use_eight_connectivity_and_cap(tmp_path):
 
 def test_transfer_workflow_does_not_evaluate_ee_boundaries(tmp_path, offline_ee, monkeypatch):
     from contextlib import nullcontext
-    from geesampler.models import RunSummary, TaskResult
-    from geecomputation import cli, workflow
-    from geesampler import engine
+    import hpgee.cli.computation as cli; import hpgee.workflows.detection as workflow
     source_dir = tmp_path / 'source'
     source_dir.mkdir()
     source, _, _ = saved_products(source_dir)
@@ -247,15 +245,6 @@ def test_transfer_workflow_does_not_evaluate_ee_boundaries(tmp_path, offline_ee,
     config_path = tmp_path / 'config.json'
     config_path.write_text(json.dumps(raw))
 
-    class FakeEngine:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def download_patch_series(self, *args, **kwargs):
-            return RunSummary('test', 'test-tag', 1, 1, 0, 0, source.stat().st_size,
-                              1., 1., 1., results=(TaskResult('task', 'workflow', 'success',
-                                  str(source), source.stat().st_size, 1., 1),))
-
     timeouts = []
     def initialize_for_transfer(cfg, *, timeout):
         timeouts.append(timeout)
@@ -264,7 +253,9 @@ def test_transfer_workflow_does_not_evaluate_ee_boundaries(tmp_path, offline_ee,
     monkeypatch.setattr(ee, 'profilePrinting', lambda **kwargs: nullcontext())
     monkeypatch.setattr(ee.data, 'computeValue',
                         lambda *_: pytest.fail('transfer must not evaluate EE boundaries'))
-    monkeypatch.setattr(engine, 'DownloadEngine', FakeEngine)
+    monkeypatch.setattr(ee.data, 'computeFeatures',
+                        lambda *_: pytest.fail('fixed product must not request metadata'))
+    monkeypatch.setattr(ee.data, 'computePixels', lambda request: source.read_bytes())
     monkeypatch.setattr(workflow, 'build_workflow',
                         lambda cfg, threshold: {'raster': ee.Image.constant(0),
                             'boundaries': object(), 'contract': workflow.workflow_contract(cfg, threshold),
@@ -273,20 +264,23 @@ def test_transfer_workflow_does_not_evaluate_ee_boundaries(tmp_path, offline_ee,
                           '--hot-dir', str(tmp_path / 'hot')]) == 0
     assert timeouts == [330]
     output = tmp_path / 'output'
+    summary = json.loads((output / 'sampler-summary.json').read_text())
+    assert summary['results'][0]['sample_id'] == 'workflow'
+    assert summary['results'][0]['scene_id'] == 'workflow_product'
     assert json.loads((output / 'verification.json').read_text())['status'] == 'verified_saved_products'
     assert [row['stage'] for row in json.loads((output / 'stages.json').read_text())['stages']] == [
         'feature-train-graph', 'transfer', 'boundary-from-saved-raster', 'verify']
 
 
 def test_missing_boundary_piece_rejected_despite_successful_raster(tmp_path):
-    from geecomputation.workflow import verify_artifacts
+    from hpgee.workflows.detection import verify_artifacts
     raster,boundary,contract=saved_products(tmp_path,partial=True)
     with pytest.raises(ValueError,match='partial'): verify_artifacts(raster,boundary,contract)
 
 
 def test_unknown_pixels_cannot_be_filled_as_unburned(tmp_path):
     import rasterio
-    from geecomputation.workflow import verify_artifacts
+    from hpgee.workflows.detection import verify_artifacts
     raster,boundary,contract=saved_products(tmp_path)
     with rasterio.open(raster,'r+') as ds:
         candidate=ds.read(3);candidate[0,1]=0;ds.write(candidate,3)
@@ -296,7 +290,7 @@ def test_unknown_pixels_cannot_be_filled_as_unburned(tmp_path):
 @pytest.mark.parametrize('unburned',[9.,.5])
 def test_invalid_binary_probability_rejected(tmp_path,unburned):
     import rasterio
-    from geecomputation.workflow import verify_artifacts
+    from hpgee.workflows.detection import verify_artifacts
     raster,boundary,contract=saved_products(tmp_path)
     with rasterio.open(raster,'r+') as ds:
         values=ds.read(1);values[0,0]=unburned;ds.write(values,1)
@@ -307,7 +301,7 @@ def test_invalid_binary_probability_rejected(tmp_path,unburned):
 def test_boundary_outside_output_grid_rejected(tmp_path):
     import rasterio
     from rasterio.warp import transform_geom
-    from geecomputation.workflow import verify_artifacts
+    from hpgee.workflows.detection import verify_artifacts
     raster,boundary,contract=saved_products(tmp_path)
     data=json.loads(boundary.read_text())
     with rasterio.open(raster) as ds:
@@ -326,7 +320,7 @@ def test_boundary_outside_output_grid_rejected(tmp_path):
     ('pre_Fmask',2.),('pre_clear',0.),('post_Fmask',-9999.),('post_clear',-9999.)])
 def test_invalid_observation_quality_rejected(tmp_path,band,value):
     import rasterio
-    from geecomputation.workflow import verify_artifacts
+    from hpgee.workflows.detection import verify_artifacts
     raster,boundary,contract=saved_products(tmp_path)
     index=contract['raster_bands'].index(band)+1
     with rasterio.open(raster,'r+') as ds:
@@ -336,13 +330,13 @@ def test_invalid_observation_quality_rejected(tmp_path,band,value):
 
 
 def test_boundary_overflow_rejected(offline_ee,monkeypatch):
-    from geecomputation.workflow import bounded_boundaries
+    from hpgee.workflows.detection import bounded_boundaries
     monkeypatch.setattr(ee.data,'computeValue',lambda graph:[{},{}])
     with pytest.raises(ValueError,match='cap exceeded'): bounded_boundaries(ee.FeatureCollection([]),cap=1)
 
 
 def test_point_input_hash_changes_contract(tmp_path):
-    from geecomputation.workflow import workflow_contract
+    from hpgee.workflows.detection import workflow_contract
     cfg=Config.from_dict(configuration());path=tmp_path/'points.json';path.write_text('first')
     a=workflow_contract(cfg,sample_points_path=path)
     path.write_text('second');b=workflow_contract(cfg,sample_points_path=path)
@@ -350,8 +344,8 @@ def test_point_input_hash_changes_contract(tmp_path):
 
 
 def test_workflow_manifest_cli_offline(tmp_path,capsys,monkeypatch):
-    from geecomputation.workflow import main
-    from geecomputation import cli
+    from hpgee.workflows.detection import main
+    import hpgee.cli.computation as cli
     raw=configuration();raw['output']=str(tmp_path/'output')
     path=tmp_path/'cfg.json';path.write_text(json.dumps(raw))
     monkeypatch.setattr(cli,'initialize',lambda cfg:pytest.fail('offline manifest must not authenticate'))
@@ -362,7 +356,7 @@ def test_workflow_manifest_cli_offline(tmp_path,capsys,monkeypatch):
 
 def test_stage_receipt_does_not_claim_pure_train_or_complete_cost(tmp_path,offline_ee,monkeypatch):
     from contextlib import nullcontext
-    from geecomputation.workflow import StageRecorder
+    from hpgee.workflows.detection import StageRecorder
     monkeypatch.setattr(ee,'profilePrinting',lambda **kwargs:nullcontext())
     recorder=StageRecorder(Config.from_dict(configuration()),tmp_path)
     with recorder.stage('train-request',evaluates_graph=True) as row: row['payload_bytes']=100
@@ -376,8 +370,8 @@ def test_stage_receipt_does_not_claim_pure_train_or_complete_cost(tmp_path,offli
 
 def test_stage_usage_keeps_reported_progress_without_double_count(tmp_path,offline_ee,monkeypatch):
     from contextlib import nullcontext
-    from geecomputation.workflow import StageRecorder
-    from geecomputation import monitoring
+    from hpgee.workflows.detection import StageRecorder
+    import hpgee.accounting.usage as monitoring
     monkeypatch.setattr(ee,'profilePrinting',lambda **kwargs:nullcontext())
     monkeypatch.setattr(monitoring,'read_usage',lambda *args,**kwargs:{'completed_seconds':1.,
         'in_progress_seconds':3.,'guard_hours':3./3600,'status':'REPORTED'})
@@ -390,8 +384,8 @@ def test_stage_usage_keeps_reported_progress_without_double_count(tmp_path,offli
 
 
 def test_workflow_auxiliary_dem_never_enters_training_graph(offline_ee,tmp_path,monkeypatch):
-    from geecomputation.workflow import build_workflow
-    from geecomputation.features import RF_BANDS,DEM_BANDS
+    from hpgee.workflows.detection import build_workflow
+    from hpgee.compute.features import RF_BANDS, DEM_BANDS
     from .test_contract import row
     split=tmp_path/'split.json';split.write_text(json.dumps({'events':{'one':'train'},'supports':{'one':'train'}}))
     raw=configuration();raw['labels']={'frozen_split_manifest':str(split),'max_samples':2}
@@ -410,14 +404,14 @@ def test_workflow_auxiliary_dem_never_enters_training_graph(offline_ee,tmp_path,
 
 
 def test_default_workflow_contract_retains_legacy_hash_and_source_fields():
-    from geecomputation.workflow import workflow_contract
+    from hpgee.workflows.detection import workflow_contract
     contract=workflow_contract(Config.from_dict(configuration()))
     assert 'source_selection' not in contract and 'source_manifest_sha256' not in contract
     assert contract['contract_sha256']=='ae22e1f332bb74c7a06d34e5e2255f1cb66832a9b1f2d6ba237e013535805df7'
 
 
 def test_frozen_source_manifest_changes_workflow_contract():
-    from geecomputation.workflow import workflow_contract
+    from hpgee.workflows.detection import workflow_contract
     cfg=Config.from_dict(configuration())
     first=workflow_contract(cfg,source_manifest_sha256='a'*64)
     second=workflow_contract(cfg,source_manifest_sha256='b'*64)
@@ -429,7 +423,7 @@ def test_frozen_source_manifest_changes_workflow_contract():
 
 @pytest.mark.parametrize('digest',['short','g'*64,'a'*63,64,True])
 def test_frozen_source_manifest_requires_sha256(digest):
-    from geecomputation.workflow import workflow_contract
+    from hpgee.workflows.detection import workflow_contract
     with pytest.raises(ValueError,match='source_manifest_sha256'):
         workflow_contract(Config.from_dict(configuration()),source_manifest_sha256=digest)
 
@@ -441,14 +435,14 @@ def test_frozen_source_manifest_requires_sha256(digest):
     {'pre':object(),'post':object()},
 ])
 def test_frozen_composites_require_both_periods_and_manifest(kwargs):
-    from geecomputation.workflow import build_products
+    from hpgee.workflows.detection import build_products
     with pytest.raises(ValueError,match='pre.*post.*source_manifest_sha256'):
         build_products(Config.from_dict(configuration()),object(),**kwargs)
 
 
 def test_frozen_composites_build_actual_graph_without_dynamic_scene_selection(offline_ee,monkeypatch):
-    from geecomputation import workflow
-    from geecomputation.features import rf_image
+    import hpgee.workflows.detection as workflow
+    from hpgee.compute.features import rf_image
     cfg=Config.from_dict(configuration())
     bands=['nir','swir1','NBR2','MIRBI','valid_count','time_ms','Fmask','clear']
     pre=ee.Image.constant([.5,.6,.5,-1.88,2,1593561600000,0,1]).rename(bands)

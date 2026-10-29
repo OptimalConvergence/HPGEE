@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace as NS
 import pytest
-from geesampler.transport import RequestsTransport
+from hpgee.runtime.transport import RequestsTransport
 
 def test_attempts_include_failure_bytes_tags_but_no_secrets():
     events=[]
@@ -40,7 +40,7 @@ def test_response_phase_fields_use_same_clock_and_allowlisted_headers(monkeypatc
 
     transport.session.request = fake_request
     ticks = iter((10.0, 10.25, 11.0))
-    monkeypatch.setattr("geesampler.transport.time.monotonic", lambda: next(ticks))
+    monkeypatch.setattr("hpgee.runtime.transport.time.monotonic", lambda: next(ticks))
     transport.request("https://earthengine.googleapis.com/x")
 
     event = next(row for row in events if row["phase"] == "finished")
@@ -68,7 +68,7 @@ def test_redirect_chain_keeps_phase_times_unknown(monkeypatch):
 
     transport.session.request = fake_request
     ticks = iter((20.0, 20.1, 20.2, 20.4))
-    monkeypatch.setattr("geesampler.transport.time.monotonic", lambda: next(ticks))
+    monkeypatch.setattr("hpgee.runtime.transport.time.monotonic", lambda: next(ticks))
     transport.request("https://earthengine.googleapis.com/x")
 
     event = next(row for row in events if row["phase"] == "finished")

@@ -1,8 +1,8 @@
 import json
 import re
 import pytest
-from geecomputation import monitoring as m
-from geecomputation.tasks import submit_once
+import hpgee.accounting.usage as m
+from hpgee.accounting.tasks import submit_once
 
 
 def test_stable_logical_task_survives_changed_tag_budget_and_plan(tmp_path):
@@ -82,14 +82,14 @@ def test_monitoring_point_identity_deduplicates_snapshots():
 
 
 def test_config_budget_is_validation_not_historical_authorization():
-    from geecomputation.config import Config
+    from hpgee.workflows.config import Config
     from .test_contract import configuration
     raw=configuration();raw['budget_eecu_hours']=10001
     assert Config.from_dict(raw).budget_eecu_hours==10001
 
 
 def test_export_requires_explicit_execution_budget(tmp_path):
-    from geecomputation.tasks import submit_ee_export
+    from hpgee.accounting.tasks import submit_ee_export
     with pytest.raises((TypeError,ValueError),match='limit_hours|budget'):
         submit_ee_export(None,contract={},journal=tmp_path/'j',project='demo-project',
                          workload_tag='x',usage={},reserve_hours=1)
@@ -98,8 +98,8 @@ def test_export_requires_explicit_execution_budget(tmp_path):
 def test_stage_nested_exception_restores_actual_tag(tmp_path,monkeypatch):
     import ee
     from contextlib import nullcontext
-    from geecomputation.workflow import StageRecorder
-    from geecomputation.config import Config
+    from hpgee.workflows.detection import StageRecorder
+    from hpgee.workflows.config import Config
     from .test_contract import configuration
     current=['original']
     monkeypatch.setattr(ee.data,'getWorkloadTag',lambda:current[0])
@@ -119,23 +119,22 @@ def test_stage_nested_exception_restores_actual_tag(tmp_path,monkeypatch):
     assert last['client_attempt']==3
 
 
-def test_read_usage_retains_deduplicated_raw_points(monkeypatch):
+def test_read_usage_retains_deduplicated_raw_points():
     from types import SimpleNamespace as N
-    from google.cloud import monitoring_v3
     point=N(interval=N(start_time='2026-01-01T00:00:00Z',end_time='2026-01-01T01:00:00Z'),
             value=N(_pb=N(WhichOneof=lambda _: 'double_value'),double_value=3600.0))
-    series=N(resource=N(type='project',labels={'project_id':'demo-project'}),metric=N(labels={'workload_tag':'run-a'}),points=[point,point])
     class Client:
-        def __init__(self,**kwargs): pass
-        def list_time_series(self,**kwargs): return [series]
-    monkeypatch.setattr(monitoring_v3,'MetricServiceClient',Client)
-    usage=m.read_usage('demo-project',start='2026-01-01T00:00:00Z',end='2026-01-02T00:00:00Z',workload_tag='run-a',credentials=object())
+        def list_time_series(self,*,request,**kwargs):
+            metric=m.IN_PROGRESS if m.IN_PROGRESS in request['filter'] else m.COMPLETED
+            return [N(resource=N(type='project',labels={'project_id':'demo-project'}),
+                      metric=N(type=metric,labels={'workload_tag':'run-a'}),points=[point,point])]
+    usage=m.read_usage('demo-project',start='2026-01-01T00:00:00Z',end='2026-01-02T00:00:00Z',workload_tag='run-a',client=Client())
     assert usage['guard_hours']==1 and len(usage['raw_points'])==2
     assert usage['telemetry_complete'] is False
 
 
 def test_logical_identity_excludes_plan_but_includes_trial_and_export():
-    from geecomputation.tasks import make_logical_task_id
+    from hpgee.accounting.tasks import make_logical_task_id
     kw=dict(unit_id='u',trial_id='production-r',backend='asset',export_contract={'graph':'a','destination':'a'})
     identity=make_logical_task_id(**kw)
     assert identity!=make_logical_task_id(**dict(kw,trial_id='trial-2'))
@@ -149,7 +148,7 @@ def test_distinct_trials_recover_original_operations_and_active_limit(tmp_path):
     a=submit_once({'graph':'a'},logical_task_id='trial-a',**kw)
     b=submit_once({'graph':'a'},logical_task_id='trial-b',**kw)
     assert a['name']!=b['name']
-    from geecomputation.tasks import refresh_known
+    from hpgee.accounting.tasks import refresh_known
     rows=refresh_known(journal=tmp_path/'j',get_operation=lambda name:{'name':name,'metadata':{'state':'RUNNING'}})
     assert len(rows)==2
     with pytest.raises(RuntimeError,match='active-task'):
@@ -157,7 +156,7 @@ def test_distinct_trials_recover_original_operations_and_active_limit(tmp_path):
 
 
 def test_refresh_operation_retains_server_attempt_cost_history(tmp_path):
-    from geecomputation.tasks import refresh_known
+    from hpgee.accounting.tasks import refresh_known
     submit_once({},journal=tmp_path/'j',project='demo-project',workload_tag='a',
                 usage={'project':'demo-project','status':'REPORTED','guard_hours':0},reserve_hours=1,limit_hours=10,
                 export=lambda *args:{'name':'operations/a'})
@@ -189,7 +188,7 @@ def test_legacy_export_spec_included_original_workload_tag(tmp_path,monkeypatch)
     import ee
     import hashlib
     from types import SimpleNamespace as N
-    from geecomputation.tasks import submit_ee_export
+    from hpgee.accounting.tasks import submit_ee_export
     monkeypatch.setattr(ee.data,'_get_projects_path',lambda:'projects/demo-project')
     monkeypatch.setattr(ee.serializer,'encode',lambda config,**kw:json.dumps(config,sort_keys=True))
     task=N(task_type=ee.batch.Task.Type.EXPORT_IMAGE,config={'assetId':'destination','description':'prepared-name'})

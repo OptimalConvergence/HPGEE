@@ -7,7 +7,7 @@ import pytest
 
 
 def api():
-    return importlib.import_module('geecomputation.candidates')
+    return importlib.import_module('hpgee.planning.candidates')
 
 
 def grid(left=500000,top=1000000,width=3,height=3):

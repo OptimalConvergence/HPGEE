@@ -6,7 +6,7 @@ import math
 import numpy as np
 import pytest
 
-from geecomputation import raw_download as raw
+import hpgee.transfer.raw_download as raw
 from .test_observations import evaluate_s1_graph
 
 SCENE=dict(collection='COPERNICUS/S1_GRD',asset_id='COPERNICUS/S1_GRD/one',

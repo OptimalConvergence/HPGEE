@@ -2,9 +2,9 @@ import json
 
 import pytest
 
-from geesampler.auth import validate_auth_config
-from geesampler.models import AuthConfig
-from geesampler.transport import RequestsTransport
+from hpgee.runtime.auth import validate_auth_config
+from hpgee.core.models import AuthConfig
+from hpgee.runtime.transport import RequestsTransport
 
 
 def _key(path, *, project="project-x", email="worker@project-x.iam.gserviceaccount.com"):
@@ -50,7 +50,7 @@ def test_requests_transport_sizes_both_connection_pools():
 
 def test_standard_endpoint_is_explicit_after_high_volume(monkeypatch):
     import ee
-    from geesampler.auth import initialize_earth_engine
+    from hpgee.runtime.auth import initialize_earth_engine
     calls=[]
     monkeypatch.setattr(ee,'Initialize',lambda **kw:calls.append(kw))
     credentials=object()

@@ -51,7 +51,7 @@ source:
 download:
   kind: patch
   scenario: distributed-s2
-  collection_builder: geesampler.recipes.sentinel2:sentinel2_catalog_collection
+  collection_builder: hpgee.recipes.sentinel2:sentinel2_catalog_collection
   bands: [B2, B3, B4, B8, B11, B12]
   patch_size: 336
   scale: 10

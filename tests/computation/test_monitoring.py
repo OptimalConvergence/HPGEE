@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from geecomputation.monitoring import summarize_usage, submission_allowed, normalize_operation
+from hpgee.accounting.usage import summarize_usage, submission_allowed, normalize_operation
 
 
 def test_empty_telemetry_is_unknown_not_free_compute():
@@ -34,30 +34,30 @@ def test_usage_rejects_invalid_intervals_and_costs():
         summarize_usage([-1], [], start='2026-10-13T00:00:00Z', end='2026-10-14T00:00:00Z')
 
 
-def test_read_usage_binds_metric_resource_project(monkeypatch):
-    from types import SimpleNamespace as N
+def test_read_usage_binds_metric_resource_project():
     from google.cloud import monitoring_v3
-    from geecomputation.monitoring import read_usage
-    point=N(value=N(_pb=N(WhichOneof=lambda _: 'double_value'),double_value=3600.0))
-    series=N(resource=N(labels={'project_id':'demo-project'}),metric=N(labels={'workload_tag':'run-a'}),points=[point])
+    from hpgee.accounting.usage import read_usage, COMPLETED, IN_PROGRESS
     class Client:
-        def __init__(self,**kwargs): pass
         def list_time_series(self,*,request,**kwargs):
             assert 'resource.labels.project_id = "demo-project"' in request['filter']
-            return [series]
-    monkeypatch.setattr(monitoring_v3,'MetricServiceClient',Client)
-    result=read_usage('demo-project',start='2026-10-13T00:00:00Z',end='2026-10-13T01:00:00Z',workload_tag='run-a',credentials=object())
+            metric=IN_PROGRESS if IN_PROGRESS in request['filter'] else COMPLETED
+            return [monitoring_v3.TimeSeries(
+                resource={'type':'earthengine_project','labels':{'project_id':'demo-project'}},
+                metric={'type':metric,'labels':{'workload_tag':'run-a'}},
+                points=[{'interval':{'start_time':datetime(2026,10,13,tzinfo=timezone.utc),
+                                    'end_time':datetime(2026,10,13,1,tzinfo=timezone.utc)},
+                         'value':{'double_value':3600}}])]
+    result=read_usage('demo-project',start='2026-10-13T00:00:00Z',end='2026-10-13T01:00:00Z',workload_tag='run-a',client=Client())
     assert result['status']=='REPORTED' and result['guard_hours']==1
 
 
-def test_read_usage_rejects_foreign_series_despite_query(monkeypatch):
-    from types import SimpleNamespace as N
+def test_read_usage_rejects_foreign_series_despite_query():
     from google.cloud import monitoring_v3
-    from geecomputation.monitoring import read_usage
+    from hpgee.accounting.usage import read_usage, COMPLETED
     class Client:
-        def __init__(self,**kwargs): pass
         def list_time_series(self,**kwargs):
-            return [N(resource=N(labels={'project_id':'foreign-project'}),metric=N(labels={'workload_tag':'run-a'}),points=[])]
-    monkeypatch.setattr(monitoring_v3,'MetricServiceClient',Client)
-    result=read_usage('demo-project',start='2026-10-13T00:00:00Z',end='2026-10-13T01:00:00Z',workload_tag='run-a',credentials=object())
+            return [monitoring_v3.TimeSeries(
+                resource={'type':'earthengine_project','labels':{'project_id':'foreign-project'}},
+                metric={'type':COMPLETED,'labels':{'workload_tag':'run-a'}})]
+    result=read_usage('demo-project',start='2026-10-13T00:00:00Z',end='2026-10-13T01:00:00Z',workload_tag='run-a',client=Client())
     assert result['status']=='UNKNOWN' and result['error_type']=='ValueError'

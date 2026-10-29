@@ -1,5 +1,5 @@
 import pytest
-from geecomputation.config import Config
+from hpgee.workflows.config import Config
 from .test_contract import configuration
 
 

@@ -2,8 +2,8 @@ from pathlib import Path
 import numpy as np
 import rasterio
 from rasterio.transform import Affine
-from geecomputation.raw_download import make_unit
-from geecomputation.raw_delivery import publish, verified
+from hpgee.transfer.raw_download import make_unit
+from hpgee.transfer.raw_delivery import publish, verified
 
 def test_valid_zero_integer_qa_and_corruption(tmp_path):
     grid={'crsCode':'EPSG:32610','affineTransform':dict(scaleX=30,shearX=0,translateX=499980,shearY=0,scaleY=-30,translateY=4500000),'dimensions':{'width':2,'height':2}}
@@ -23,7 +23,7 @@ def test_valid_zero_integer_qa_and_corruption(tmp_path):
     assert not verified(unit,tmp_path/'saved')
 
 def test_partial_pack_not_used_for_benchmark_and_resume_splits():
-    from geecomputation.raw_delivery import atoms,pending_units
+    from hpgee.transfer.raw_delivery import atoms, pending_units
     grid={'crsCode':'EPSG:32610','affineTransform':dict(scaleX=30,shearX=0,translateX=0,shearY=0,scaleY=-30,translateY=30000),'dimensions':{'width':1024,'height':1024}}
     unit=make_unit([{'asset_id':'hls/a','time_ms':0}],grid,'hls')
     pieces=atoms(unit);completed={pieces[0]['unit_id']}

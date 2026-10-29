@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
-from geesampler.engine import DownloadEngine
-from geesampler.models import RunConfig,EECUMonitorConfig,SampleRecord,TaskResult
+from hpgee.transfer.engine import DownloadEngine
+from hpgee.core.models import RunConfig, EECUMonitorConfig, SampleRecord, TaskResult
 
 class EE: pass
 

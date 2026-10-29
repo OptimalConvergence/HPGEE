@@ -20,14 +20,14 @@ except ModuleNotFoundError:
 CANDIDATE = Path(__file__).resolve().parents[2] / "candidate"
 if (CANDIDATE / "geecomputation").is_dir():
     sys.path.insert(0, str(CANDIDATE))
-    observation_stub = types.ModuleType("geecomputation.observations")
+    observation_stub = types.ModuleType("hpgee.planning.observations")
     observation_stub.observation_image = lambda *args, **kwargs: None
     observation_stub.S1_COLLECTION = "COPERNICUS/S1_GRD"
-    sys.modules.setdefault("geecomputation.observations", observation_stub)
+    sys.modules.setdefault("hpgee.planning.observations", observation_stub)
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from geecomputation import raw_delivery, raw_download  # noqa: E402
+import hpgee.transfer.raw_delivery as raw_delivery; import hpgee.transfer.raw_download as raw_download  # noqa: E402
 
 
 def grid(width=2, height=2):

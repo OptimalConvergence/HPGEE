@@ -4,8 +4,8 @@ import pytest
 from pyproj import Transformer
 from shapely.geometry import box, mapping, shape
 from shapely.ops import transform, unary_union
-from geecomputation import regional
-from geecomputation.config import Config
+import hpgee.planning.regional as regional
+from hpgee.workflows.config import Config
 
 
 def grid(width=8,height=4):

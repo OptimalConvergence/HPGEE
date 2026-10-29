@@ -3,10 +3,10 @@ from datetime import timezone
 
 import pytest
 
-from geesampler.config import SamplerConfig, load_callable
-from geesampler.grid import compute_grid, utm_epsg
-from geesampler.models import PatchGrid, SampleRecord, parse_datetime
-from geesampler.sources import FileSampleSource, _record
+from hpgee.sampling.config import SamplerConfig, load_callable
+from hpgee.core.grid import compute_grid, utm_epsg
+from hpgee.core.models import PatchGrid, SampleRecord, parse_datetime
+from hpgee.sampling.sources import FileSampleSource, _record
 
 
 def test_parse_epoch_millis_and_grid_dimensions():
@@ -70,7 +70,7 @@ def test_yaml_environment_expansion(tmp_path, monkeypatch):
     config = SamplerConfig.from_yaml(config_path)
     assert config.auth.project == "project-x"
     assert config.run.eecu.enabled is False
-    assert load_callable("geesampler.recipes.sentinel2:polygon_mask").__name__ == "polygon_mask"
+    assert load_callable("hpgee.recipes.sentinel2:polygon_mask").__name__ == "polygon_mask"
 
 
 def test_yaml_catalog_settings(tmp_path, monkeypatch):

@@ -7,9 +7,9 @@ import ee
 from ee import apitestcase
 import pytest
 
-from geecomputation.config import Config
-from geecomputation.features import DEM_BANDS, RF_BANDS, feature_image
-from geecomputation import rf
+from hpgee.workflows.config import Config
+from hpgee.compute.features import DEM_BANDS, RF_BANDS, feature_image
+import hpgee.compute.rf as rf
 from .test_contract import configuration, row
 
 
@@ -103,7 +103,7 @@ def test_frozen_columns_reject_missing_detection_features(tmp_path, monkeypatch)
 
 
 def test_superset_snapshot_reuses_cohort_for_model_variants_without_feature_build(tmp_path, monkeypatch):
-    import geecomputation.features as features
+    import hpgee.compute.features as features
     cfg, split = config_and_split(tmp_path)
     monkeypatch.setattr(ee.data, 'computeValue', lambda graph: [
         {'type': 'Feature', 'geometry': None, 'properties': dict(row(label), **dict.fromkeys(DEM_BANDS, .1))}

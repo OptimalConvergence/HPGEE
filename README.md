@@ -1,76 +1,95 @@
 # HPGEE — High Performance Google Earth Engine
 
-HPGEE combines bounded Earth Engine computation with concurrent, resumable pixel
-sampling in one repository and one Python distribution. It preserves the
-`geecomputation` and `geesampler` import namespaces and their existing commands.
+HPGEE builds Earth Engine products and delivers their pixels through one resumable
+execution system. Source sampling and derived computation share exact grid
+contracts, authentication, transport, monitoring, and durable transfer recovery.
 
-## Install
+## Install and use
 
-Use Python 3.10 or newer. From this repository:
+Use Python 3.10 or newer:
 
 ```bash
 python -m pip install -e '.[all,dev]'
-geesampler --help
-geecompute --help
-geecompute-benchmark --help
+hpgee --help
+hpgee sample examples/configs/prepared_points.yaml
+hpgee compute manifest --config examples/computation/small-roi.json
+hpgee workflow --config examples/computation/small-roi.json --manifest-only
 ```
 
-The distribution is named `hpgee`; it includes both packages. Use a clean
-environment when replacing separately installed `geesampler` or `geecomputation`
-distributions, because they own the same Python module paths. An existing
-installation is not automatically updated by moving source files.
+`sample` requires an authorized, configured Earth Engine project. The two manifest
+commands are offline. `python -m hpgee` also works without console scripts.
+Use a clean environment when replacing separately installed `geesampler` or
+`geecomputation` distributions, whose module paths overlap the compatibility layer.
 
-## Choose a workflow
-
-| Task | Entry point | Guide |
+| Capability | Command | Guide |
 | --- | --- | --- |
-| Source catalogs, sample planning, pixel transfer, retry and resume | `geesampler` | [Sampling](docs/sampling.md) |
-| Frozen contracts, features, RF workflows, product preparation and accounting | `geecompute` | [Computation](docs/computation.md) |
-| Bounded computation comparisons | `geecompute-benchmark` | [Computation](docs/computation.md) |
-| Samples through inference, transfer and saved-product checks | `python -m geecomputation.workflow` | [Computation](docs/computation.md) |
-| Agent instructions for both paths | `SKILL.md` | [Efficient GEE](SKILL.md) |
+| Sample selection and resumable pixel delivery | `hpgee sample` | [Sampling](docs/sampling.md) |
+| Source catalogs and incremental metadata | `hpgee catalog`, `hpgee metadata` | [Sampling](docs/sampling.md) |
+| Frozen contracts, previews, exports and usage | `hpgee compute` | [Computation](docs/computation.md) |
+| Samples → features → RF → products and delivery | `hpgee workflow` | [Computation](docs/computation.md) |
+| Bounded computation comparisons | `hpgee benchmark` | [Computation](docs/computation.md) |
+| Transfer throughput reports | `hpgee progress` | [Sampling](docs/sampling.md) |
 
-Computation builds lazy graphs and prepares products. Sampling owns pixel
-transport and durable recovery. The merged package does not create a second
-download queue or change scientific recipes. Authentication, remote requests and
-exports still require the caller's applicable authorization and budget.
+Specialized legacy commands remain available through `geesampler`, `geecompute`
+and `geecompute-benchmark`. Existing dotted callback paths and Python imports
+remain aliases to the canonical implementations; see the
+[module migration map](docs/module-migration.json).
 
-## Repository layout
+## Architecture
 
 ```text
-src/geesampler/          Sampling, metadata, transport and recovery
-src/geecomputation/      Computation, products, contracts and accounting
-tests/                  Sampling tests
-tests/computation/      Computation tests and fixtures
-examples/               Sampling examples
-examples/computation/   Computation examples
-docs/                   User guides
-SKILL.md                Unified, explicitly invoked agent skill
-references/             Detailed skill guidance
+src/hpgee/
+  core/          Exact pixel grids, data models, storage and file locking
+  runtime/       EE authentication, HTTP transport and retry policy
+  catalog/       Source metadata, catalog persistence and scene resolution
+  sampling/      Sample inputs, configuration and distributed orchestration
+  planning/      Observation, cube and regional support plans
+  compute/       Lazy feature graphs, RF and scientific recipes
+  workflows/     Product contracts and detection orchestration
+  transfer/      Shared download engine and frozen observation/product adapters
+  accounting/    Shared Monitoring reader, usage ledgers, tasks and quotas
+  reporting/     Progress, resources, events and visualization
+  recipes/       Source collection callbacks
+  cli/           Unified command routing and capability handlers
+  benchmarks/    Sampling and computation measurements
+compat/          Thin aliases for previous import paths; no business logic
+skills/          Versioned agent instructions, independent of runtime packages
 ```
 
-Run the offline suite with `python -m pytest`. Build the wheel with
-`python -m build`. Offline tests exercise local contracts and mocked Earth Engine
-graphs; they do not prove authenticated remote execution, current quotas or
-scientific accuracy. Optional geospatial and monitoring packages are included in
-the `all` extra used above.
+[Architecture and migration](docs/architecture.md) explains shared contracts,
+dependency boundaries, persisted-state compatibility, and the deliberate
+separation of scientific recipes from execution infrastructure.
 
-## Local organization and compatibility
+## Agent skill
 
-On the maintained cluster, the physical repository and skill directory is
-`/nfs-data0/home/lyh/OutSideSkillLib/efficient-gee`.
-`/nfs-data0/home/lyh/workspace/projects/HPGEE` is its project entry point.
-The previous `GEESampler` and `GEEComputation` project entries have been
-retired. Their original sources and Git history are archived under
-`/nfs-data0/home/lyh/workspace/home-organization/backups`. Use the HPGEE
-path for new work; frozen historical runs may retain the former path names.
+The maintained skill source is [skills/efficient-gee](skills/efficient-gee/SKILL.md).
+Install a physical copy of only the skill files:
 
-The `geesampler-upstream` remote preserves the former repository URL; `origin`
-targets `OptimalConvergence/HPGEE`. Configuring a remote does not create or publish
-that repository. This integration is prepared locally for later publication.
-Existing immutable research releases and data remain outside this repository.
+```bash
+python tools/install_skill.py --destination /path/to/OutSideSkillLib/efficient-gee
+python tools/install_skill.py --destination /path/to/OutSideSkillLib/efficient-gee --check
+```
 
-The GEESampler Git history is retained, including a checkpoint of its local
-development changes before integration. The MIT license and original copyright
-notice are retained. Component `__version__` values identify the retained
-components; the unified distribution version is recorded in `pyproject.toml`.
+The skill directory contains no repository or Python package. It remains explicitly
+invoked; installation does not change automatic discovery settings. On the maintained
+cluster the physical code repository is `/nfs-data0/home/lyh/workspace/projects/HPGEE`,
+and its skill copy is `/nfs-data0/home/lyh/OutSideSkillLib/efficient-gee`.
+
+## Validation and provenance
+
+```bash
+python -m pytest
+python -m build
+```
+
+The offline suite checks graph serialization, exact grids, real-engine mocked
+transfers, resume, accounting failure modes, old import identities, and unified
+CLI dispatch. It does not establish live performance, current cloud quotas,
+authenticated execution, or scientific acceptance. Validate saved pixels and
+research outcomes separately within the calling project's authorized budget.
+
+Existing scientific recipes, persisted receipts and workload prefixes retain their
+identities. Original GEESampler Git history and the MIT copyright notice are
+preserved. The unified distribution is version 0.2.0. Historical source backups,
+Git bundles and local migration records are kept outside the repository under
+`/nfs-data0/home/lyh/workspace/home-organization/`.

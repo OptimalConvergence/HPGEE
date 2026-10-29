@@ -4,9 +4,10 @@ import os
 from functools import partial
 from pathlib import Path
 
-from geesampler import PatchGrid, Sampler, SceneSelection
-from geesampler.recipes.mining import mining_records
-from geesampler.recipes.sentinel2 import (
+from hpgee.core.models import PatchGrid, SceneSelection
+from hpgee.sampling.sampler import Sampler
+from hpgee.recipes.mining import mining_records
+from hpgee.recipes.sentinel2 import (
     S2_BANDS,
     polygon_mask,
     sentinel2_catalog_collection,

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hpgee"
-version = "0.1.0"
+version = "0.2.0"
 description = "High Performance Google Earth Engine computation and resumable sampling"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -53,18 +53,25 @@ Repository = "https://github.com/OptimalConvergence/HPGEE"
 Issues = "https://github.com/OptimalConvergence/HPGEE/issues"
 
 [project.scripts]
-geesampler = "geesampler.cli:main"
-geecompute = "geecomputation.cli:main"
-geecompute-benchmark = "geecomputation.benchmark:main"
+hpgee = "hpgee.cli.main:main"
+geesampler = "hpgee.cli.sampling:main"
+geecompute = "hpgee.cli.computation:main"
+geecompute-benchmark = "hpgee.benchmarks.computation:main"
+
+[tool.setuptools.package-dir]
+"" = "src"
+geesampler = "compat/geesampler"
+geecomputation = "compat/geecomputation"
 
 [tool.setuptools.packages.find]
-where = ["src"]
-include = ["geesampler*", "geecomputation*"]
+where = ["src", "compat"]
+include = ["hpgee*", "geesampler*", "geecomputation*"]
+namespaces = false
 
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "compat"]
 
 [tool.ruff]
 line-length = 100

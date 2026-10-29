@@ -1,43 +1,43 @@
-# GEEComputation
+# HPGEE computation and workflows
 
-Foundations for retrieval, computation optimization, and controlled scheduling through the GEE Python API. Following the user's division of responsibilities on 2026-10-13, S3+S4 maintains this library and owns GEE training, Global Burned Area Mapping Ver1, and efficiency optimization. Regional computation/output and cost pilots are complete; global V1 is not complete. S1+S2 owns data/sample strategy and consumes published library versions. Per-scene pixel acquisition reuses GEESampler; there is no second downloader or download queue.
+HPGEE provides feature construction, RF inference, observation planning, and controlled execution through the GEE Python API. Scientific operations live in `hpgee.compute`, planning in `hpgee.planning`, and end-to-end orchestration in `hpgee.workflows`. Computation and sampling share the runtime, grids, accounting, and `hpgee.transfer` download engine. The regional pilots described below do not establish a complete global mapping system.
 
-## Two-stage version entrypoints
+## Versioned calling-project integration
 
-Project status and the protocol are in `/nfs-data0/home/lyh/workspace/projects/GlobFireProcMnt/STATUS.md` and `docs/stages/INTERFACE.md`. S3+S4 publishes `exchange/compute/latest.json` after updating code, the Skill, and calling examples; S1+S2 publishes `exchange/samples/latest.json`. The two entrypoints update atomically and independently. Consumers pin a version at startup without waiting for another handoff document.
+Calling projects may publish independent compute and sample releases through `exchange/compute/latest.json` and `exchange/samples/latest.json`. Pin the selected code, data, and manifest SHAs before execution. For a calling project that supplies `scripts/stage_exchange.py`, historical release resolution uses:
 
 ```bash
-cd /nfs-data0/home/lyh/workspace/projects/GlobFireProcMnt
+cd /path/to/calling-project
 python3 scripts/stage_exchange.py resolve --channel compute --artifact geecomputation --purpose inspect
 python3 scripts/stage_exchange.py resolve --channel samples --artifact weak_rf_8000 --purpose cost_benchmark --feature-contract hls-common6-v2
 ```
 
-Compute resolution returns the frozen code `pythonpath`, Skill/document paths, and capability contract. Sample resolution returns `labels` that can be merged directly into Config, together with permitted uses and file SHAs. Set the returned PYTHONPATH before running, save both manifest paths/SHAs, and do not switch latest during a run. The canonical external directories are development and maintenance locations; consumers can use immutable snapshots. The current weak table is restricted to cost_benchmark/workflow_smoke_test and cannot automatically become eligible for global training or independent validation. Ready describes the available scope; it does not grant additional resources or execution budget.
+The `geecomputation` artifact identifier in this external protocol is retained for existing release manifests. It is separate from HPGEE's canonical Python modules. Use the release's frozen `pythonpath` and capability contract, and merge sample `labels` into `hpgee.workflows.config.Config` only for their permitted uses. External agent guidance and project-specific handoff documents belong to the calling project; this package does not assume that they are colocated with its source. The historical weak table is restricted to cost_benchmark/workflow_smoke_test and does not establish eligibility for global training or independent validation.
 
 ## Running
 
-The verified runtime is `/nfs-data0/home/lyh/anaconda3/envs/geesampler/bin/python`, with ee 1.7.42, GEESampler 0.3.0, numpy, and pytest already available. Run the following from the library root:
+Install HPGEE into your selected Python environment and run from the repository root:
 
 ```bash
-export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
-/nfs-data0/home/lyh/anaconda3/envs/geesampler/bin/python -m geecomputation manifest --config examples/computation/small-roi.json
-/nfs-data0/home/lyh/anaconda3/envs/geesampler/bin/python -m pytest -q
+python -m pip install -e '.[all,dev]'
+python -m hpgee compute manifest --config examples/computation/small-roi.json
+python -m pytest -q
 ```
 
 Replace the example's funded project, actual ROI, dates, output directory, and UTM grid before explicitly invoking:
 
 ```bash
-python -m geecomputation inspect --config CONFIG.json
-python -m geecomputation preview --config CONFIG.json
-python -m geecomputation usage --config CONFIG.json --start 2026-10-13T00:00:00Z --end 2026-10-13T01:00:00Z
-python -m geecomputation status --config CONFIG.json --operation projects/PROJECT/operations/OPERATION_ID
-python -m geecomputation quota --config CONFIG.json --project-number OPTIONAL_NUMERIC_PROJECT
-python -m geecomputation train --config CONFIG.json
+python -m hpgee compute inspect --config CONFIG.json
+python -m hpgee compute preview --config CONFIG.json
+python -m hpgee compute usage --config CONFIG.json --start 2026-10-13T00:00:00Z --end 2026-10-13T01:00:00Z
+python -m hpgee compute status --config CONFIG.json --operation projects/PROJECT/operations/OPERATION_ID
+python -m hpgee compute quota --config CONFIG.json --project-number OPTIONAL_NUMERIC_PROJECT
+python -m hpgee compute train --config CONFIG.json
 ```
 
 `manifest` is entirely offline. `inspect` queries collection counts, at most 8 indices, and the first scene's band types/projection for a small ROI; it does not train. `preview` computes a monthly RGB PNG (at most 512 px and 5 MiB); signed URLs remain only in memory, and thumbnails are not analytical pixels. `usage` requires a fixed interval with UTC offsets; end defaults to UTC now. Unknown usage returns UNKNOWN and exit 2 and must not be treated as zero. `status` reads only the specified operation. `quota` reads EE config and ServiceUsage without initializing EE; missing permission returns UNKNOWN and exit 2. Any monthly balance still requires verification of the actual tier, period, and usage; no remaining quota is invented. Only `train` explicitly triggers RF training. The CLI does not submit batch Exports or Slurm jobs or open an authentication browser.
 
-Authentication reuses `geesampler.models.AuthConfig` / `geesampler.auth.initialize_earth_engine`. Auth supports service_account, key_file, and high_volume; existing user credentials are the default. Credential contents are not logged.
+Authentication reuses `hpgee.core.models.AuthConfig` / `hpgee.runtime.auth.initialize_earth_engine`. Auth supports service_account, key_file, and high_volume; existing user credentials are the default. Credential contents are not logged.
 
 ## Frozen contract
 
@@ -49,7 +49,7 @@ The budget (0–10,000 reported EECU-hours) is a declaration for the current ses
 
 The HLS v002 common6 order is blue/green/red/nir/swir1/swir2. L30 maps to B2/B3/B4/B5/B6/B7; S30 maps to B2/B3/B4/B8A/B11/B12. EE catalog examples show reflectance directly, so the recipe uses scale=1 and offset=0 without multiplying again by the original files' 0.0001. Production use still requires verification of actual saved pixel ranges and types.
 
-Fmask bits 1–4 must be 0, and high aerosol with bits 6–7=3 is excluded. Bit 0 is reserved and unused; the water flag is retained. Reflectance and time_ms use the common valid common6/QA mask, while QA/clear are also retained. The per-scene callback casts the entire multiband image to Double to support GEESampler's fixed GEO_TIFF requests and preserve exact millisecond clocks and integer QA values; it does not cast only the time band. NBR2=(SWIR1-SWIR2)/(SWIR1+SWIR2), with near-zero denominators marked unknown. Negative reflectance alone is not masked. MIRBI=10*SWIR2-9.8*SWIR1+2.
+Fmask bits 1–4 must be 0, and high aerosol with bits 6–7=3 is excluded. Bit 0 is reserved and unused; the water flag is retained. Reflectance and time_ms use the common valid common6/QA mask, while QA/clear are also retained. The per-scene callback casts the entire multiband image to Double to support HPGEE's fixed GEO_TIFF requests and preserve exact millisecond clocks and integer QA values; it does not cast only the time band. NBR2=(SWIR1-SWIR2)/(SWIR1+SWIR2), with near-zero denominators marked unknown. Negative reflectance alone is not masked. MIRBI=10*SWIR2-9.8*SWIR1+2.
 
 Monthly compositing uses qualityMosaic(-NBR2); all bands, QA, and time_ms come from the same scene, with ties resolved by EE. All internal bands use double to avoid type mismatches between empty templates and real images. Empty collections remain unknown with valid_count=0. valid_count counts common6/QA-qualified observations and cannot substitute for the number with a valid NBR2 denominator. RF inputs are fixed to post_NBR2/post_MIRBI/delta_NBR2/delta_MIRBI/delta_NIR/delta_SWIR1, with delta=post-pre. Both periods use minimum-NBR2 composites. This is a literature-inspired simplification, not an exact reproduction. The monthly RF cannot directly infer dates from individual scenes, and this package does not implement burn-interval estimation.
 
@@ -57,7 +57,7 @@ An optional s1 configuration such as `{"relative_orbit":34,"pass":"DESCENDING"}`
 
 ## HLS–S1–DEM fused discovery pilot
 
-`geecomputation.fused` implements the `hls-s1-dem-monthpair-v1` contract separately from the existing `core6` workflow. `feature_image(region, year, month, orbit_pass=..., relative_orbit=..., grid_crs=..., grid_transform=...)` returns 29 RF predictor bands, 8 separate QA bands, and half-open UTC monthly windows as a lazy EE graph. Predictors use only HLS SR/pre-post changes, S1 VV/VH from the same relative orbit and pass, and DEM. MCD64, FireCCI, GlobMap, and hotspots are used only as training candidates or subsequent comparisons, never as predictors. Each month's pre period is `m-1`; the post period is the valid HLS median for `m`. Predictions remain masked where the paired HLS observations are unavailable. This v1 does not equate monthly compositing with a burn date.
+`hpgee.compute.fused` implements the `hls-s1-dem-monthpair-v1` contract separately from the existing `core6` workflow. `feature_image(region, year, month, orbit_pass=..., relative_orbit=..., grid_crs=..., grid_transform=...)` returns 29 RF predictor bands, 8 separate QA bands, and half-open UTC monthly windows as a lazy EE graph. Predictors use only HLS SR/pre-post changes, S1 VV/VH from the same relative orbit and pass, and DEM. MCD64, FireCCI, GlobMap, and hotspots are used only as training candidates or subsequent comparisons, never as predictors. Each month's pre period is `m-1`; the post period is the valid HLS median for `m`. Predictions remain masked where the paired HLS observations are unavailable. This v1 does not equate monthly compositing with a burn date.
 
 S1 GRD in EE is already in dB: convert to linear sigma0, average within the same orbit/pass, and convert back to dB for the pre/post difference. Missing paired S1 uses a `-99` dB sentinel and an explicit `s1_missing=1`, preserving valid HLS pixels. DEM provides Copernicus GLO30 DSM elevation/slope/aspect context. `followup_evidence(region, year, month)` queries HLS NBR, valid counts, and actual dates for `m+1` only within a bounded candidate ROI. Missing persistence must not automatically reject rapidly regreening burns. A more precise `(last valid unburned, first valid burned]` interval requires manual or algorithmic checks of valid original scenes; the current monthly composite clock is not that interval.
 
@@ -81,21 +81,21 @@ Use either labels.local_samples for a local GeoJSON FeatureCollection or labels.
 
 At most max_samples+1 rows (with max_samples capped at 10,000) are requested to detect overflow rather than silently truncate. The rf configuration permits trees=50/100/200 and feature_set=core6/core6_dem (default 100/core6). core6_dem adds elevation/slope/aspect_sin/aspect_cos, which the samples must explicitly contain. Seed and MULTIPROBABILITY are fixed; consecutive integer classes [0,1] fix the uncalibrated score order to score_unburned/score_burned. An explicit explanation query triggers training. Outputs are rf-training.json, rf-model-graph.json, and rf-score-graph.json. The graphs are reproducible computation recipes; evaluating them again reruns training. They are **not persistent weights or EE Asset checkpoints**. No independent validation metrics are provided, and accuracy acceptance is not claimed.
 
-## GEESampler adaptation
+## Shared sampling and transfer
 
-The bounded interfaces `rf.freeze_training_snapshot` → `rf.build_rf_model` → `rf.predict_rf` separate one-time sample validation from the inference graph for each core. Multiple EE evaluations may still repeat training; this is not persistent model storage. `regional.build_region_plan` provides core/query/output grids and exclusive ownership within one UTM zone; query halos must be cropped back to their cores. `candidates.index_saved_candidates` / `relate_components` preserve actual candidate/unknown masks and component spatial relations without assigning events or burn dates. `transfer.product_sampler_arguments(cfg, products)` hands known workflow products directly to the existing GEESampler engine, avoiding scene-catalog selection requests. Original HLS/S1 sources still require enumeration and verification.
+The bounded interfaces `hpgee.compute.rf.freeze_training_snapshot` → `build_rf_model` → `predict_rf` separate one-time sample validation from the inference graph for each core. Multiple EE evaluations may still repeat training; this is not persistent model storage. `hpgee.planning.regional.build_region_plan` provides core/query/output grids and exclusive ownership within one UTM zone; query halos must be cropped back to their cores. `hpgee.planning.candidates.index_saved_candidates` / `relate_components` preserve actual candidate/unknown masks and component spatial relations without assigning events or burn dates. `hpgee.transfer.products.product_sampler_arguments(cfg, products)` hands known workflow products directly to the shared download engine, avoiding scene-catalog selection requests. Original HLS/S1 sources still require enumeration and verification.
 
-`monthly.resolve_burn_month_support` works entirely offline to organize callers' existing state evidence into `(last unburned, first burned]` intervals and possible months, retaining cross-month ambiguity, missing endpoints, and the `as_of` cutoff. It does not derive state evidence from current composite clocks/RF scores or implement a monthly detector, complete support raster package, or event closure.
+`hpgee.compute.monthly.resolve_burn_month_support` works entirely offline to organize callers' existing state evidence into `(last unburned, first burned]` intervals and possible months, retaining cross-month ambiguity, missing endpoints, and the `as_of` cutoff. It does not derive state evidence from current composite clocks/RF scores or implement a monthly detector, complete support raster package, or event closure.
 
-API parameters, minimal examples, limitations, and evidence levels are in `references/computation/bounded-apis.md` of the same Skill version. Offline planning or reuse of a lazy model does not establish that the server computes it only once. These interfaces do not automatically export original scene series together.
+Callable signatures are defined in the functional modules above; the [module migration map](module-migration.json) identifies their legacy import equivalents. Offline planning or reuse of a lazy model does not establish that the server computes it only once. These interfaces do not automatically export original scene series together.
 
-`geecomputation.recipe.hls_scene_collection(sample, *, config_path)` matches collection_builder(SampleRecord) and returns per-scene HLS. SCENE_BANDS is common6 + Fmask/clear/NBR2/MIRBI/time_ms. `frozen_grid(sample, grid_spec, *, config_path)` matches grid_builder and returns a fixed computePixels grid. One configuration applies only to the current frozen ROI; the same grid cannot be reused for different events.
+`hpgee.workflows.recipe.hls_scene_collection(sample, *, config_path)` matches collection_builder(SampleRecord) and returns per-scene HLS. SCENE_BANDS is common6 + Fmask/clear/NBR2/MIRBI/time_ms. `frozen_grid(sample, grid_spec, *, config_path)` matches grid_builder and returns a fixed computePixels grid. One configuration applies only to the current frozen ROI; the same grid cannot be reused for different events.
 
 ```python
 from functools import partial
-from geecomputation.recipe import hls_scene_collection, frozen_grid
-from geecomputation.features import SCENE_BANDS
-from geesampler.models import PatchGrid, SceneSelection
+from hpgee.workflows.recipe import hls_scene_collection, frozen_grid
+from hpgee.compute.features import SCENE_BANDS
+from hpgee.core.models import PatchGrid, SceneSelection
 
 builder = partial(hls_scene_collection, config_path='CONFIG.json')
 grid_builder = partial(frozen_grid, config_path='CONFIG.json')
@@ -105,13 +105,13 @@ grid_builder = partial(frozen_grid, config_path='CONFIG.json')
 #                          end_offset_days=31, max_scenes=EXPLICIT_CAP))
 ```
 
-Per-scene downloads require an explicit anchor date, half-open offset interval, and max_scenes. The callback's configured interval intersects GEESampler's scene selection. A finite cap does not prove complete enumeration. Verify grid/QA/time/values after saving; metadata cloud percentage, exit codes, and PNGs do not establish dataset acceptance. The two-scene validation of actual saved pixels for this adapter is recorded below. Example configurations still require replacement with your own frozen inputs.
+Per-scene downloads require an explicit anchor date, offset interval, and max_scenes. The callback's configured half-open interval intersects HPGEE's scene selection. A finite cap does not prove complete enumeration. Verify grid/QA/time/values after saving; metadata cloud percentage, exit codes, and PNGs do not establish dataset acceptance. The two-scene validation of actual saved pixels for this adapter is recorded below. Example configurations still require replacement with your own frozen inputs.
 
 ## Current verification status (2026-10-13)
 
 Follow-up work has exercised the user-specified workflow: feature extraction from 400 original agency weak sample supports, RF100 training/inference, export of a 21-band result image, GEESampler pixel acquisition, and GeoJSON candidate-boundary verification. The same result-export path also passed with 8000 existing samples. Model assets are no longer part of this workflow. Both runs used a fixed 256×256, 30 m UTM grid, and auxiliary DEM did not enter the core6 RF. Actual timings/EECU and evidence for each stage are retained by the calling project in `runs/2026-10-13-s1s2-workflow-v2-*`; this pilot is not extrapolated to a global completion time.
 
-Saved-result acceptance jointly checks the ranges/sums of both class probabilities, unknown masks, pre/post observation half-open UTC windows, Fmask/clear/integer observation counts, the pixelwise union of candidate boundaries within the grid, and out-of-bounds geometry. Original TIFFs returned by GEESampler may lack band names. `workflow.finalize_transfer` fills in names using the frozen computePixels `bandIds` order, rejects conflicting existing names, and preserves the original transfer file. The `geodesic=False` field on Point geometries returned by EE is removed according to Point reconstruction rules before reentering the Python API; coordinates and source SHA remain unchanged.
+Saved-result acceptance jointly checks the ranges/sums of both class probabilities, unknown masks, pre/post observation half-open UTC windows, Fmask/clear/integer observation counts, the pixelwise union of candidate boundaries within the grid, and out-of-bounds geometry. Original TIFFs returned by GEESampler may lack band names. `hpgee.workflows.detection.finalize_transfer` fills in names using the frozen computePixels `bandIds` order, rejects conflicting existing names, and preserves the original transfer file. The `geodesic=False` field on Point geometries returned by EE is removed according to Point reconstruction rules before reentering the Python API; coordinates and source SHA remain unchanged.
 
 Offline tests cover UTC/30 m, QA, negative values/zero denominators, same-scene selection/empty collections, deltas, missing optional modalities, class support/leakage, frozen split/hashes, manifest/CLI, and graph serialization with the actual existing ee client. Tests use EE's bundled algorithms fixture and block network access; they neither authenticate nor train online. Serialization does not prove server executability, source access, pixel correctness, or efficiency targets.
 
@@ -122,10 +122,10 @@ References: [HLS S30](https://developers.google.com/earth-engine/datasets/catalo
 ## Complexity specifications and conditional single-year estimates
 
 ```bash
-python -m geecomputation.benchmark specs --config CONFIG.json
+python -m hpgee benchmark specs --config CONFIG.json
 # Only explicit execute authenticates and computes; this session did not run it:
-python -m geecomputation.benchmark execute --config CONFIG.json
-python -m geecomputation.benchmark estimate --metrics MEASURED.csv --coverage COVERAGE.json --year 2020
+python -m hpgee benchmark execute --config CONFIG.json
+python -m hpgee benchmark estimate --metrics MEASURED.csv --coverage COVERAGE.json --year 2020
 ```
 
 Six specifications combine 50/100/200 trees × core6/core6_dem under the same training samples (asset or frozen local table), frozen split JSON, inference grid/ROI, pre/post intervals, QA, and seed. Detection inputs are explicitly HLS; DEM is added only in the specified variant. process_aux such as GEDI/VIIRS_FRP are defined separately and do not enter the detection RF. All specifications share comparison_contract_sha256; each variant has its own run_spec_sha256.
@@ -141,7 +141,7 @@ Missing measurements, any unmeasured target stratum, unknown/incompletely reconc
 ### Refresh telemetry without rerunning computation
 
 ```bash
-python -m geecomputation.benchmark refresh-telemetry --config CONFIG.json --records OUTPUT/benchmarks/RUN_ID/records.json --delay-seconds 300
+python -m hpgee benchmark refresh-telemetry --config CONFIG.json --records OUTPUT/benchmarks/RUN_ID/records.json --delay-seconds 300
 ```
 
 The original project/workload tag/start/end are retained, with the query window extended to original end+delay. If that window has not yet ended, the tool records a waiting state without querying, sleeping, initializing EE, training, or running inference. Refresh saves observation history and the original interval, updates only reported_eecu_seconds, and never automatically marks telemetry_complete. Neither a fixed elapsed delay nor the appearance of a point proves billing completeness.
@@ -168,49 +168,55 @@ Small classifier Exports verified task registration, submission, and terminal-st
 
 ## End-to-end entrypoint: samples → features → RF → inference → prediction products
 
-The current workflow no longer depends on persistent model assets. `workflow.py` reuses Config, features, rf, tasks, monitoring, and GEESampler. The complete workflow fixes `core6`, with auxiliary DEM excluded from RF. The product has 21 float64 bands: two uncalibrated class scores, a candidate layer with default threshold 0.5, six RF optical features, pre/post valid_count/time_ms/Fmask/clear, and four independent aux_dem_* bands. Here core6 means the six detection features, not raw common6 reflectance. Candidates are not accepted burned area, and time layers identify selected scenes rather than burn intervals. VIIRS/GEDI are currently recorded as excluded and must not be claimed as exported.
+The current workflow no longer depends on persistent model assets. `hpgee.workflows.detection` composes the shared configuration, compute, accounting, and transfer modules. Product identity and band order are defined in `hpgee.workflows.contracts`. The complete workflow fixes `core6`, with auxiliary DEM excluded from RF. The product has 21 float64 bands: two uncalibrated class scores, a candidate layer with default threshold 0.5, six RF optical features, pre/post valid_count/time_ms/Fmask/clear, and four independent aux_dem_* bands. Here core6 means the six detection features, not raw common6 reflectance. Candidates are not accepted burned area, and time layers identify selected scenes rather than burn intervals. VIIRS/GEDI are currently recorded as excluded and must not be claimed as exported.
 
 ```bash
 # Freeze the contract offline, without authentication or computation.
-python -m geecomputation.workflow --config CONFIG.json --manifest-only
+python -m hpgee workflow --config CONFIG.json --manifest-only
 # Use a frozen local training table; synchronously retrieve bounded real boundaries,
 # and save the lazy product graph and export plan.
-python -m geecomputation.workflow --config CONFIG.json --threshold .5 --boundary-cap 2000
+python -m hpgee workflow --config CONFIG.json --threshold .5 --boundary-cap 2000
 # Explicitly resample in GEE, then train, infer, transfer actual pixels,
 # and verify pixel/boundary consistency.
-python -m geecomputation.workflow --config CONFIG.json --sample-points POINTS.geojson \
+python -m hpgee workflow --config CONFIG.json --sample-points POINTS.geojson \
   --threshold .5 --boundary-cap 2000 --transfer --hot-dir /tmp/ALLOCATED_JOB/workflow
 ```
 
 `POINTS.geojson` is a GeoJSON FeatureCollection of already-authorized labeled point supports. It preserves label/event_id/support_id/split/label_source/label_eligible and original source/version/date/provenance properties; the entrypoint does not grant additional label eligibility. Support points must not contain old RF/DEM features that would conflict with new sampling. `sampleRegions` uses the frozen CRS/affine, drops points whose core is unobserved, saves `sampled-samples.geojson`, and passes it directly to the existing `train_rf` checks for frozen splits, both classes, finite values, and leakage. Sampling includes DEM and pre/post counts. Only in this sampled table, missing DEM is filled with -9999; that does not establish DEM observability or change the optical cohort. Actual product DEM retains its independent mask. Perimeter-interior/exterior ground truth is not constructed automatically; the calling project owns its authorized weak rules and point sources. The default cap is labels.max_samples; any cap overflow is rejected without silent truncation.
 
-The input contract freezes the support-point SHA, source collections/intervals, seed, RF, output grid, threshold, and bands. effective-workflow-contract.json additionally includes the newly sampled table's SHA. Sampling provenance/wall time/response bytes are recorded in stages.json; training.json records the existing RF sample snapshot SHA. The CLI neither exports nor loads model assets and submits neither Slurm jobs nor batch exports. `--transfer` requires an allocated node-local hot-dir and calls the existing single-scene path in GEESampler DownloadEngine. SQLite/retry/resume reuse the existing queue. GEESampler's actual workload tag is recorded for the stage to avoid querying transfer cost with an outer tag. At termination, product.tif and sampler-summary.json are saved sequentially to the calling project's output.
+The input contract freezes the support-point SHA, source collections/intervals, seed, RF, output grid, threshold, and bands. effective-workflow-contract.json additionally includes the newly sampled table's SHA. Sampling provenance/wall time/response bytes are recorded in stages.json; training.json records the existing RF sample snapshot SHA. The CLI neither exports nor loads model assets and submits neither Slurm jobs nor batch exports. `--transfer` requires an allocated node-local hot-dir and uses `hpgee.transfer.products.product_sampler_arguments` with the shared `DownloadEngine`. Its frozen-scene resolver avoids metadata discovery for the already-defined product. SQLite/retry/resume reuse the existing queue. The engine's actual workload tag is recorded for the stage to avoid querying transfer cost with an outer tag. At termination, product.tif and sampler-summary.json are saved sequentially to the calling project's output.
 
 Product support is exactly the rectangle defined by the output affine × width/height. Boundaries use eight-connected `reduceToVectors` in the same CRS/affine for candidate=1 only, returning WGS84 GeoJSON. The bounded client path uses `toList(boundary_cap+1)` and switches to table export on overflow. Saved-result acceptance checks dtype, CRS/affine/shape/band order, core/score/candidate masks, threshold, and valid observation counts. It projects the actual GeoJSON back onto the grid to verify pixelwise agreement of polygon union and candidates. Missing files, unobserved pixels filled as negatives, and incomplete boundaries are rejected. A valid empty boundary set with no candidates still requires valid observations. Missing auxiliaries cannot remove valid core pixels. `verification.json` proves only saved-product consistency, not independent accuracy or global readiness.
 
 To reduce recomputation of lazy graphs, a primary executor can first export a **prediction-product image Asset**, then obtain boundaries/actual pixels from the completed, verified product Asset. This is not a model Asset. The basic interface is:
 
 ```python
-from geecomputation.workflow import (
+from hpgee.workflows.detection import (
     sample_points, build_workflow, prepare_exports, boundaries_from_raster,
-    bounded_boundaries, product_collection, sample_grid, verify_artifacts,
+    bounded_boundaries, verify_artifacts,
 )
+from hpgee.transfer.products import product_sampler_arguments
 # FC and provenance: retain input point properties without duplicating RF validation.
 sampled_fc, provenance = sample_points(cfg, 'POINTS.geojson')
 # After the primary executor freezes sampled_fc to bounded local GeoJSON
 # and replaces cfg.labels.local_samples:
 products = build_workflow(cfg, threshold=.5)
 prepared = prepare_exports(cfg, products, asset_id='projects/PROJECT/assets/FRESH_PRODUCT')
-# Pass prepared['image'] to existing tasks.submit_ee_export(..., contract=products['contract'], ...).
+# Pass prepared['image'] to hpgee.accounting.tasks.submit_ee_export(
+#     ..., contract=products['contract'], ...).
 # Do not call Task.start; retain the journal, known operation, and reported-budget guard.
 # Pass drive_folder for table export; prepare_exports returns table.
 # Preparing an export does not submit it.
 # After checking the image Asset's terminal state and contract:
 boundary_fc = boundaries_from_raster(cfg, ee.Image(FRESH_PRODUCT), threshold=.5)
 boundary_geojson = bounded_boundaries(boundary_fc, cap=2000)
+# To transfer the verified product through an already initialized engine:
+# completed = dict(products, raster=ee.Image(FRESH_PRODUCT))
+# arguments = product_sampler_arguments(cfg, completed)
+# summary = engine.download_patch_series(**arguments, scenario='prediction-product')
 ```
 
-`build_workflow` returns model/scores/candidate/core6/quality/aux/raster/boundaries/metadata/contract/bands. RF still trains and infers directly through lazy graphs without `Classifier.load`. `product_collection(sample, products=...)` and `sample_grid(sample, grid_spec, cfg=...)` can be passed through functools.partial to the existing sampler.download_patch_series. The single scene uses system:index=workflow_product; system:time_start=the post interval's start is only product packaging and does not claim that every pixel was observed on that day. For the Asset-read path, products['raster'] can be replaced by the completed ee.Image while retaining the same bands/grid/contract.
+`build_workflow` returns model/scores/candidate/core6/quality/aux/raster/boundaries/metadata/contract/bands. RF still trains and infers directly through lazy graphs without `Classifier.load`. `product_sampler_arguments(cfg, products)` supplies the exact band order, rectangular pixel grid, reference scene, and callbacks for `DownloadEngine.download_patch_series`. It uses `hpgee.transfer.requests.FrozenSceneRequest`, also used by observation delivery. The single scene uses system:index=workflow_product; system:time_start=the post interval's start is only product packaging and does not claim that every pixel was observed on that day. For the Asset-read path, products['raster'] can be replaced by the completed ee.Image while retaining the same bands/grid/contract.
 
 `StageRecorder.stage(name, evaluates_graph=True)` saves wall time, UTC time, a separate workload tag, a profile file, and an optional payload_bytes value for each sequential request. Feature/training graph construction mainly performs sample-validation RPCs. Model and image dependencies execute during later boundary/export/acquisition requests and may be recomputed. No request's wall time/profile is pure training time; `sum_pure_train_seconds=null`. `refresh_usage(end=UTC_OFFSET_TIME)` uses the existing monitoring to save delayed reported completed/in-progress views separately. They are never added together or automatically marked complete: eecu_seconds=null and telemetry_complete=false until independent external reconciliation. The synchronous CLI accepts --usage-end; a separate executor can retain its recorder and refresh later. profilePrinting is diagnostic evidence, not independent billing. The resampled 400-support workflow and the 8000-existing-sample variant require separately frozen runs/contracts and costs; their costs cannot be combined into a single workflow total.
 
@@ -218,12 +224,12 @@ Additional offline tests cover unknown masks, threshold/contract hashes, output 
 
 ## Bounded original-observation delivery interface (2026-10-15)
 
-`observations.observation_query_plan` can locally freeze original HLS L30/S30 or S1 collections, a GeoJSON ROI, and a half-open UTC window. Only `enumerate_observations` issues authenticated, paginated metadata requests. Only manifests with `complete && pagination_complete` may enter `planning.build_cube_plan`. Query failures, complete zero-scene results, out-of-contract scenes, and scenes whose native grids do not intersect are retained separately. Native-extent intersection still does not establish clear/valid pixels. `listImages` has no workload-tag EECU accounting; query wall time is not converted to EECU.
+`hpgee.planning.observations.observation_query_plan` can locally freeze original HLS L30/S30 or S1 collections, a GeoJSON ROI, and a half-open UTC window. Only `enumerate_observations` issues authenticated, paginated metadata requests. Only manifests with `complete && pagination_complete` may enter `hpgee.planning.cube.build_cube_plan`. Query failures, complete zero-scene results, out-of-contract scenes, and scenes whose native grids do not intersect are retained separately. Native-extent intersection still does not establish clear/valid pixels. `listImages` has no workload-tag EECU accounting; query wall time is not converted to EECU.
 
 ```python
-from geecomputation.observations import observation_query_plan, enumerate_observations
-from geecomputation.planning import build_cube_plan, select_support
-from geecomputation.delivery import deliver_unit, verify_delivery
+from hpgee.planning.observations import observation_query_plan, enumerate_observations
+from hpgee.planning.cube import build_cube_plan, select_support
+from hpgee.transfer.delivery import deliver_unit, verify_delivery
 
 query = observation_query_plan('NASA/HLS/HLSL30/v002', project=PROJECT,
     geometry=ROI_GEOJSON, start='2020-03-30T00:00:00Z',
@@ -236,10 +242,10 @@ plan = build_cube_plan(source_manifest=source, supports=ORIGINAL_SUPPORTS,
     grid=FROZEN_UTM_GRID, window=FROZEN_UTC_WINDOW, bands=HLS_FLOAT32_BAND_CONTRACT)
 one_support = select_support(plan, SUPPORT_ID)
 # The caller delivers plan['units'] sequentially through the existing
-# GEESampler DownloadEngine, using for each unit:
+# hpgee.transfer.engine.DownloadEngine, using for each unit:
 # deliver_unit(unit, engine=engine, hot_dir=NODE_LOCAL,
 #              archive_dir=PERSISTENT_ARCHIVE, trial_id=TRIAL_ID).
 # Finally pass real receipts to verify_delivery({'plan': plan, 'deliveries': receipts}).
 ```
 
-`build_cube_plan` deduplicates by original scene fingerprint, fixed 30 m UTM chip, and band/QA contract, preserving each original support's in-place geometry, window, and missing/cutoff reasons. The 9 HLS bands comprise common6, Fmask, source_valid_bits, and clear. The 5 S1 bands provide original-observation support for comparable same-orbit/same-pass analysis and do not automatically enter the current RF. `deliver_unit` uses GEESampler download/recovery rather than building another queue. Archive receipts include original scene/time, bands, grid, SHA, and workload tag. `verify_delivery` checks actual TIFFs and valid pixels over the original support. `complete` means all physical units are present; `observed_pixels` and scientific label eligibility must be assessed separately. The calling project must still pin both release SHAs, budget, Slurm allocation, and actual job/task receipts.
+`build_cube_plan` deduplicates by original scene fingerprint, fixed 30 m UTM chip, and band/QA contract, preserving each original support's in-place geometry, window, and missing/cutoff reasons. The 9 HLS bands comprise common6, Fmask, source_valid_bits, and clear. The 5 S1 bands provide original-observation support for comparable same-orbit/same-pass analysis and do not automatically enter the current RF. `deliver_unit` binds the enumerated scene through the shared frozen request and engine, retaining source/time identity without another metadata lookup. Archive receipts include original scene/time, bands, grid, SHA, and workload tag. `verify_delivery` checks actual TIFFs and valid pixels over the original support. `complete` means all physical units are present; `observed_pixels` and scientific label eligibility must be assessed separately. The calling project must still pin both release SHAs, budget, Slurm allocation, and actual job/task receipts.

@@ -5,9 +5,7 @@ import ee
 import pytest
 from ee import apitestcase
 
-from geecomputation.fused import (FEATURE_BANDS, FEATURE_CONTRACT, QA_BANDS,
-                            feature_image, followup_evidence, month_windows,
-                            predict_month, train_rf)
+from hpgee.compute.fused import FEATURE_BANDS, FEATURE_CONTRACT, QA_BANDS, feature_image, followup_evidence, month_windows, predict_month, train_rf
 
 
 @pytest.fixture(autouse=True)

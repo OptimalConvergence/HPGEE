@@ -1,15 +1,10 @@
 import json
 from datetime import datetime, timezone
 
-from geesampler.catalog import S2SceneCatalog, SceneRecord
-from geesampler.grid import compute_grid
-from geesampler.models import PatchGrid, SampleRecord, SceneSelection
-from geesampler.resolver import (
-    INLINE_CLEAR_BAND,
-    CatalogResolverConfig,
-    MGRSTileLocator,
-    S2CatalogResolver,
-)
+from hpgee.catalog.catalog import S2SceneCatalog, SceneRecord
+from hpgee.core.grid import compute_grid
+from hpgee.core.models import PatchGrid, SampleRecord, SceneSelection
+from hpgee.catalog.resolver import INLINE_CLEAR_BAND, CatalogResolverConfig, MGRSTileLocator, S2CatalogResolver
 
 COLLECTION = "COPERNICUS/S2_SR_HARMONIZED"
 

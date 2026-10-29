@@ -1,5 +1,5 @@
-from geesampler.models import EECUMonitorConfig
-from geesampler.monitoring import EECUMonitor, EECUSnapshot, SequenceEECUReader
+from hpgee.core.models import EECUMonitorConfig
+from hpgee.accounting.sampling import EECUMonitor, EECUSnapshot, SequenceEECUReader
 
 
 def test_eecu_thresholds_and_metrics(tmp_path):

@@ -1,7 +1,7 @@
 import json
 import pytest
-from geecomputation.benchmark import benchmark_specs,estimate_year,read_metrics
-from geecomputation.config import Config
+from hpgee.benchmarks.computation import benchmark_specs, estimate_year, read_metrics
+from hpgee.workflows.config import Config
 from .test_contract import configuration
 
 
@@ -73,7 +73,7 @@ def test_csv_ingestion_preserves_unknown_not_zero(tmp_path):
 
 
 def test_estimator_cli_has_no_real_values_without_metrics(tmp_path,capsys):
-    from geecomputation.benchmark import main
+    from hpgee.benchmarks.computation import main
     metrics=tmp_path/'empty.json'; metrics.write_text('[]')
     target=tmp_path/'coverage.json'; target.write_text(json.dumps({'year':2020,'months':12,'synthetic':False,'strata':coverage()}))
     assert main(['estimate','--metrics',str(metrics),'--coverage',str(target),'--year','2020'])==2
@@ -85,9 +85,9 @@ def test_explicit_probe_journals_unknown_eecu_without_batch_submission(tmp_path,
     import ee
     from ee import apitestcase
     from dataclasses import replace
-    from geecomputation import cli,monitoring
-    from geecomputation.benchmark import execute_benchmark
-    from geecomputation.features import DEM_BANDS
+    import hpgee.cli.computation as cli; import hpgee.accounting.usage as monitoring
+    from hpgee.benchmarks.computation import execute_benchmark
+    from hpgee.compute.features import DEM_BANDS
     from .test_contract import row
     helper=apitestcase.ApiTestCase(); helper.setUp()
     try:
@@ -125,8 +125,8 @@ def test_partial_reported_points_cannot_estimate_even_when_nonzero():
 
 def test_refresh_only_telemetry_preserves_tag_window_and_never_completes(tmp_path,monkeypatch):
     from datetime import datetime,timezone
-    from geecomputation import monitoring
-    from geecomputation.benchmark import refresh_telemetry
+    import hpgee.accounting.usage as monitoring
+    from hpgee.benchmarks.computation import refresh_telemetry
     from dataclasses import replace
     cfg=replace(cfg_with_labels(tmp_path),output=tmp_path/'out')
     path=tmp_path/'records.json'
@@ -148,8 +148,8 @@ def test_refresh_only_telemetry_preserves_tag_window_and_never_completes(tmp_pat
 
 def test_refresh_delay_never_queries_early(tmp_path,monkeypatch):
     from datetime import datetime,timezone
-    from geecomputation import monitoring
-    from geecomputation.benchmark import refresh_telemetry
+    import hpgee.accounting.usage as monitoring
+    from hpgee.benchmarks.computation import refresh_telemetry
     cfg=cfg_with_labels(tmp_path)
     path=tmp_path/'records.json'; path.write_text(json.dumps([{'project':cfg.project,'remote_workload_tag':'tag',
         'start':'2026-10-13T01:00:00Z','end':'2026-10-13T01:01:00Z'}]))

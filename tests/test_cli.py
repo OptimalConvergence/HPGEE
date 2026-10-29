@@ -1,6 +1,6 @@
 import json
 
-from geesampler.cli import main
+from hpgee.cli.sampling import main
 
 
 def test_catalog_stats_cli_needs_no_earth_engine_authentication(tmp_path, capsys):

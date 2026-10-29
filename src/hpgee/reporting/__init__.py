@@ -1,0 +1,1 @@
+"""HPGEE reporting capabilities."""

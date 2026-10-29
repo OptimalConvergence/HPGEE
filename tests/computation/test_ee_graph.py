@@ -2,10 +2,10 @@ import json
 import pytest
 import ee
 from ee import apitestcase
-from geesampler.models import SampleRecord,PatchGrid
-from geecomputation.config import Config
-from geecomputation.features import hls_collection,min_nbr2_composite,feature_image,s1_power_composite,dem_image
-from geecomputation.recipe import hls_scene_collection,frozen_grid
+from hpgee.core.models import SampleRecord, PatchGrid
+from hpgee.workflows.config import Config
+from hpgee.compute.features import hls_collection, min_nbr2_composite, feature_image, s1_power_composite, dem_image
+from hpgee.workflows.recipe import hls_scene_collection, frozen_grid
 from .test_contract import configuration
 
 
@@ -33,7 +33,7 @@ def test_real_ee_graph_serializes_hls_rf_and_optional_features(tmp_path):
 
 
 def test_rf_graph_contract_without_server_training(tmp_path,monkeypatch):
-    from geecomputation.rf import train_rf
+    from hpgee.compute.rf import train_rf
     from .test_contract import row
     manifest=tmp_path/'split.json'
     manifest.write_text(json.dumps({'events':{'one':'train'},'supports':{'one':'train'}}))
@@ -53,8 +53,8 @@ def test_rf_graph_contract_without_server_training(tmp_path,monkeypatch):
 
 def test_rf_variants_freeze_identical_cohort_and_dem_graph(tmp_path,monkeypatch):
     from dataclasses import replace
-    from geecomputation.rf import train_rf
-    from geecomputation.features import RF_BANDS,DEM_BANDS,prepare_hls
+    from hpgee.compute.rf import train_rf
+    from hpgee.compute.features import RF_BANDS, DEM_BANDS, prepare_hls
     from .test_contract import row
     split=tmp_path/'split.json'; split.write_text(json.dumps({'events':{'one':'train'},'supports':{'one':'train'}}))
     raw=configuration(); raw['labels']={'frozen_split_manifest':str(split),'max_samples':5}
@@ -88,7 +88,7 @@ def test_rf_variants_freeze_identical_cohort_and_dem_graph(tmp_path,monkeypatch)
 
 
 def test_rf_training_graph_uses_validated_literal_snapshot_not_mutable_asset(tmp_path,monkeypatch):
-    from geecomputation.rf import train_rf
+    from hpgee.compute.rf import train_rf
     from .test_contract import row
     split=tmp_path/'split.json'; split.write_text(json.dumps({'events':{'one':'train'},'supports':{'one':'train'}}))
     raw=configuration(); raw['labels']={'frozen_split_manifest':str(split),'max_samples':5}
@@ -103,7 +103,7 @@ def test_rf_training_graph_uses_validated_literal_snapshot_not_mutable_asset(tmp
 
 
 def test_local_input_helper_is_literal_and_drops_geometry(tmp_path):
-    from geecomputation.rf import input_samples
+    from hpgee.compute.rf import input_samples
     from .test_contract import row
     path=tmp_path/'local.json'
     path.write_text(json.dumps({'type':'FeatureCollection','features':[
@@ -120,7 +120,7 @@ def test_local_input_helper_is_literal_and_drops_geometry(tmp_path):
 
 def test_local_rf_validation_uses_frozen_rows_without_remote_roundtrip(tmp_path, monkeypatch):
     import hashlib
-    from geecomputation.rf import input_samples, train_rf
+    from hpgee.compute.rf import input_samples, train_rf
     from .test_contract import row
     split = tmp_path / 'split.json'
     split.write_text(json.dumps({'events': {'one': 'train'}, 'supports': {'one': 'train'}}))
@@ -145,7 +145,7 @@ def test_local_rf_validation_uses_frozen_rows_without_remote_roundtrip(tmp_path,
 
 
 def test_rf_bounded_read_above_collection_display_limit(tmp_path,monkeypatch):
-    from geecomputation.rf import train_rf
+    from hpgee.compute.rf import train_rf
     from .test_contract import row
     split=tmp_path/'split.json'; split.write_text(json.dumps({'events':{'one':'train'},'supports':{'one':'train'}}))
     raw=configuration(); raw['labels']={'frozen_split_manifest':str(split),'max_samples':8000}

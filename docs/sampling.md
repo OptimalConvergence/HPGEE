@@ -1,10 +1,11 @@
-# GEESampler
+# HPGEE sampling
 
-GEESampler is a Python package for concurrent, resumable extraction of point time
-series and georeferenced image-patch sequences from Google Earth Engine (GEE). It
-keeps Earth Engine preprocessing in normal Python callbacks while standardizing
-sample inputs, exact pixel grids, downloads, manifests, progress metrics, and
-workload-tagged EECU monitoring.
+HPGEE supports concurrent, resumable extraction of point time series and
+georeferenced image-patch sequences from Google Earth Engine (GEE). Sampling
+uses `hpgee.sampling`, source discovery uses `hpgee.catalog`, and pixel delivery
+uses the same `hpgee.transfer` engine as computed products. Python callbacks
+define Earth Engine preprocessing; shared contracts cover sample inputs, exact
+pixel grids, manifests, progress metrics, and workload-tagged EECU monitoring.
 
 The default patch is **336×336 pixels at 10 m**. Patch size, scale, bands,
 temporal selection, endpoint, and concurrency remain configurable.
@@ -35,7 +36,7 @@ permissions are owner-only (`chmod 600 /secure/path/key.json`).
 
 ## Authentication and network
 
-GEESampler accepts Earth Engine Application Default Credentials or a service
+HPGEE accepts Earth Engine Application Default Credentials or a service
 account:
 
 ```yaml
@@ -45,9 +46,8 @@ auth:
   key_file: ${GEE_KEY_FILE}
 ```
 
-The package does not launch or reconfigure VPN software. It honors the standard
-`HTTP_PROXY` and `HTTPS_PROXY` variables; on the development machine the existing
-Mihomo service is available at `http://127.0.0.1:7890`.
+The package honors the standard `HTTP_PROXY` and `HTTPS_PROXY` variables.
+Configure any required network route before starting the client.
 
 ### Multiple credential profiles
 
@@ -107,8 +107,10 @@ is additionally needed for EECU telemetry. See Google's
 ```python
 from functools import partial
 
-from geesampler import FileSampleSource, PatchGrid, Sampler, SceneSelection
-from geesampler.recipes.sentinel2 import S2_BANDS, sentinel2_catalog_collection
+from hpgee.core.models import PatchGrid, SceneSelection
+from hpgee.sampling.sampler import Sampler
+from hpgee.sampling.sources import FileSampleSource
+from hpgee.recipes.sentinel2 import S2_BANDS, sentinel2_catalog_collection
 
 sampler = Sampler.from_yaml("examples/configs/prepared_points.yaml")
 samples = FileSampleSource("examples/data/points.csv").records()
@@ -137,12 +139,17 @@ Prepared inputs can be CSV, GeoJSON, GeoPackage, Shapefile, or GeoParquet.
 SampleRecord(sample_id, geometry, date, properties)
 ```
 
-The YAML equivalent is runnable with:
+The YAML equivalent is runnable through the unified command:
 
 ```bash
-geesampler run examples/configs/prepared_points.yaml
-geesampler run examples/configs/point_timeseries.yaml
+python -m hpgee sample examples/configs/prepared_points.yaml
+python -m hpgee sample examples/configs/point_timeseries.yaml
 ```
+
+The `geesampler` command remains available for specialized cache, validation,
+and delayed sampling-benchmark telemetry helpers. Existing environment variable
+names, workload prefixes, and output directories retain their established names.
+See the [module migration map](module-migration.json) for legacy Python imports.
 
 ## Outputs and resume
 
@@ -192,9 +199,9 @@ Earth Engine collection directly. Known cloudy scenes and cached quality
 rejections are never reintroduced by this fallback.
 
 ```bash
-geesampler catalog sync examples/configs/prepared_points.yaml
-geesampler catalog stats examples/configs/prepared_points.yaml
-geesampler catalog import-geelinker examples/configs/prepared_points.yaml \
+python -m hpgee catalog sync examples/configs/prepared_points.yaml
+python -m hpgee catalog stats examples/configs/prepared_points.yaml
+python -m hpgee catalog import-geelinker examples/configs/prepared_points.yaml \
   /path/to/S2GridInfos --start 2017-01-01 --end 2025-01-01
 ```
 
@@ -215,17 +222,16 @@ Install the `geo` extra for either Cloud Score validation path.
 ## EECU progress and guards
 
 Every `computePixels` and `computeFeatures` request carries a unique run-level
-workload tag. If the caller can read Cloud Monitoring, GEESampler polls:
+workload tag. If the caller can read Cloud Monitoring, HPGEE polls:
 
 - `earthengine.googleapis.com/project/cpu/usage_time` (completed EECU-seconds);
 - `earthengine.googleapis.com/project/cpu/in_progress_usage_time` (in-progress
   EECU-seconds).
 
 The monitoring identity needs permission to read project time series (for
-example, the Cloud Monitoring Viewer role). Cloud Monitoring uses the process's
-Application Default Credentials. This keeps the Earth Engine service-account key
-isolated from telemetry; grant the monitoring identity read access separately if
-EECU progress is required.
+example, the Cloud Monitoring Viewer role). Shared accounting uses explicitly
+supplied credentials or the active Earth Engine identity. Grant that identity
+the required monitoring access when EECU progress is needed.
 
 Example guard:
 
@@ -289,7 +295,7 @@ Create an RGB/mask figure:
 geesampler validate image.tif preview.png --mask mask.tif
 ```
 
-`geesampler.benchmark.staged_benchmark_patch_downloads` first screens the same
+`hpgee.benchmarks.sampling.staged_benchmark_patch_downloads` first screens the same
 samples across standard/high-volume endpoints, 128/256/336/512/768/1024/1536
 patch sizes, 4/8/16/24/32 download threads, and all three cloud policies.
 It retains four complementary configurations, then runs 128 samples with three
@@ -309,7 +315,7 @@ rejects cases above the 48 MiB uncompressed `computePixels` request limit. A liv
 six-band S2 request at 1792 was rejected by Earth Engine at 57,802,752 bytes;
 1536 completed below the limit and is therefore the largest default case. The
 estimate is intentionally conservative because preprocessing can promote pixel
-types. These metrics measure GEESampler payloads rather than whole-machine
+types. These metrics measure HPGEE payloads rather than whole-machine
 interface traffic.
 
 Run the included tuning trial and refresh delayed EECU values afterward:
@@ -340,6 +346,6 @@ offline unit suite.
 
 ## Global metadata and operational reporting
 
-Scan S2, Landsat C2 Tier-1 Level-2, HLS, VIIRS and GEDI metadata incrementally with `geesampler metadata sync`; inspect checkpoints with `geesampler metadata status`. `geesampler metadata grids` downloads and indexes official WRS-2/MGRS reference grids. The scanner commits each page atomically, preserves resume state, and makes fully enumerated global windows available to catalog lookups. It does not download image pixels.
+Scan S2, Landsat C2 Tier-1 Level-2, HLS, VIIRS and GEDI metadata incrementally with `python -m hpgee metadata sync`; inspect checkpoints with `python -m hpgee metadata status`. `python -m hpgee metadata grids` downloads and indexes official WRS-2/MGRS reference grids. The scanner commits each page atomically, preserves resume state, and makes fully enumerated global windows available to catalog lookups. It does not download image pixels.
 
-`geesampler progress METRICS.jsonl --minutes 30` reports completed-image throughput without counting cache reuse as new traffic. Sampling now detects a worker count exceeding the initialized HTTP connection pool; bounded metadata retries distinguish transport interruptions from terminal errors. See [global metadata and performance guidance](global-metadata.md) for commands, collection aliases, date-boundary semantics, schema compatibility and limitations.
+`python -m hpgee progress METRICS.jsonl --minutes 30` reports completed-image throughput without counting cache reuse as new traffic. Sampling now detects a worker count exceeding the initialized HTTP connection pool; bounded metadata retries distinguish transport interruptions from terminal errors. See [global metadata and performance guidance](global-metadata.md) for commands, collection aliases, date-boundary semantics, schema compatibility and limitations.

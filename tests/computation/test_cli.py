@@ -1,6 +1,6 @@
 import json
 import pytest
-from geecomputation.cli import main
+from hpgee.cli.computation import main
 from .test_contract import configuration
 
 
@@ -21,7 +21,7 @@ def test_cli_rejects_training_without_frozen_asset_contract(tmp_path):
 
 
 def test_usage_unknown_returns_nonzero_without_ee_initialize(tmp_path,capsys,monkeypatch):
-    from geecomputation import cli,monitoring
+    import hpgee.cli.computation as cli; import hpgee.accounting.usage as monitoring
     raw=configuration(); raw['output']=str(tmp_path/'out')
     path=tmp_path/'config.json'; path.write_text(json.dumps(raw))
     def unavailable(project,*,start,end,workload_tag=None,credentials=None):
@@ -49,7 +49,7 @@ def test_existing_output_does_not_silently_change_scientific_config(tmp_path,cap
 
 
 def test_quota_cli_is_readonly_and_does_not_initialize_ee(tmp_path,capsys,monkeypatch):
-    from geecomputation import cli,quota
+    import hpgee.cli.computation as cli; import hpgee.accounting.quota as quota
     raw=configuration(); raw['output']=str(tmp_path/'out')
     path=tmp_path/'config.json'; path.write_text(json.dumps(raw))
     monkeypatch.setattr(cli,'initialize',lambda cfg:pytest.fail('quota must not initialize EE'))

@@ -10,13 +10,12 @@ import rasterio
 from rasterio.io import MemoryFile
 from affine import Affine
 
-from geesampler.engine import DownloadEngine
-from geesampler.models import RunConfig, EECUMonitorConfig, SceneSelection
-from geecomputation.config import Config
-from geecomputation import transfer
-from geecomputation.features import RF_BANDS, DEM_BANDS
-from geecomputation.workflow import (PRODUCT_BANDS, workflow_contract, finalize_transfer,
-                                     boundaries_from_saved_raster, verify_artifacts, build_products)
+from hpgee.transfer.engine import DownloadEngine
+from hpgee.core.models import RunConfig, EECUMonitorConfig, SceneSelection
+from hpgee.workflows.config import Config
+import hpgee.transfer.products as transfer
+from hpgee.compute.features import RF_BANDS, DEM_BANDS
+from hpgee.workflows.detection import PRODUCT_BANDS, workflow_contract, finalize_transfer, boundaries_from_saved_raster, verify_artifacts, build_products
 
 
 @pytest.fixture(autouse=True)

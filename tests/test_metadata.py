@@ -4,9 +4,9 @@ from unittest.mock import Mock
 import pytest
 from requests.exceptions import SSLError
 
-from geesampler.catalog import S2SceneCatalog
-from geesampler.metadata import MetadataScanner, grid_key, scan_status
-from geesampler.retry import retry_read
+from hpgee.catalog.catalog import S2SceneCatalog
+from hpgee.catalog.metadata import MetadataScanner, grid_key, scan_status
+from hpgee.runtime.retry import retry_read
 
 COLLECTION = "COPERNICUS/S2_SR_HARMONIZED"
 
@@ -94,7 +94,7 @@ def test_native_grids():
 
 
 def test_retry_transport_but_not_permissions(monkeypatch):
-    monkeypatch.setattr("geesampler.retry.time.sleep", lambda _: None)
+    monkeypatch.setattr("hpgee.runtime.retry.time.sleep", lambda _: None)
     op = Mock(side_effect=[SSLError("EOF"), "ok"])
     assert retry_read(op) == "ok"
     op = Mock(side_effect=PermissionError("denied"))
@@ -111,7 +111,7 @@ def test_spatial_lookup(tmp_path):
 
 
 def test_global_complete_window_supplies_empty_tile_coverage(tmp_path):
-    from geesampler.metadata import utc
+    from hpgee.catalog.metadata import utc
 
     scan = scanner(tmp_path, Mock(return_value={"images": []}))
     scan.sync("s2", "2025-01-01", "2025-01-03")
@@ -135,9 +135,9 @@ def test_filter_uses_acquisition_time_for_both_bounds(tmp_path):
 
 def test_sampler_refuses_silent_transport_pool_bottleneck(tmp_path):
     from dataclasses import replace
-    from geesampler.config import SamplerConfig
-    from geesampler.models import AuthConfig, RunConfig
-    from geesampler.sampler import Sampler
+    from hpgee.sampling.config import SamplerConfig
+    from hpgee.core.models import AuthConfig, RunConfig
+    from hpgee.sampling.sampler import Sampler
 
     config = SamplerConfig(
         AuthConfig("project"), RunConfig(output_dir=tmp_path, workers=16), None, {}
@@ -149,7 +149,7 @@ def test_sampler_refuses_silent_transport_pool_bottleneck(tmp_path):
 
 
 def test_wrapped_http_error_preserves_retryability():
-    from geesampler.retry import is_transient
+    from hpgee.runtime.retry import is_transient
 
     inner = RuntimeError("HTTP failure")
     inner.resp = SimpleNamespace(status=503)
@@ -162,8 +162,8 @@ def test_wrapped_http_error_preserves_retryability():
 
 def test_progress_does_not_count_cache_as_network(tmp_path):
     import json
-    from geesampler.metadata import utc
-    from geesampler.progress import summarize_metrics
+    from hpgee.catalog.metadata import utc
+    from hpgee.reporting.progress import summarize_metrics
 
     path = tmp_path / "metrics.jsonl"
     rows = [
@@ -179,7 +179,7 @@ def test_progress_does_not_count_cache_as_network(tmp_path):
 
 
 def test_gedi_index_normalization(tmp_path):
-    from geesampler.metadata import scene_record, COLLECTIONS
+    from hpgee.catalog.metadata import scene_record, COLLECTIONS
 
     row = asset()
     row["id"] = "LARSE/GEDI/GEDI02_A_002/granule"
@@ -201,7 +201,7 @@ def test_concurrent_resume_keeps_original_windows(tmp_path):
 
 
 def test_unbounded_viirs_mosaic_retains_source_geometry():
-    from geesampler.metadata import scene_record, COLLECTIONS
+    from hpgee.catalog.metadata import scene_record, COLLECTIONS
 
     row = asset()
     row["id"] = COLLECTIONS["viirs"] + "/2025_01_01"

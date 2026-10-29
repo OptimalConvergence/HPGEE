@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace as NS
-from geesampler.monitoring import CloudEECUReader, EECUSnapshot
+from hpgee.accounting.sampling import CloudEECUReader, EECUSnapshot
 from google.cloud import monitoring_v3 as m
 
 def series(value, tag='test', integer=True):
@@ -30,7 +30,7 @@ def test_unknown_is_not_zero():
     assert EECUSnapshot('now',None,None,available=False).guard_seconds is None
 
 def test_rest_monitor_paginates_using_same_authorized_session():
-    from geesampler.monitoring import MonitoringRESTClient
+    from hpgee.accounting.sampling import MonitoringRESTClient
     calls=[]
     payload=m.TimeSeries.to_json(series(7))
     import json

@@ -2,14 +2,16 @@
 
 from functools import partial
 
-from geesampler import EESampleSource, PatchGrid, Sampler, SceneSelection
-from geesampler.recipes.mtbs import (
+from hpgee.core.models import PatchGrid, SceneSelection
+from hpgee.sampling.sampler import Sampler
+from hpgee.sampling.sources import EESampleSource
+from hpgee.recipes.mtbs import (
     mtbs_source,
     negative_candidates,
     negative_pairs,
     positive_pairs,
 )
-from geesampler.recipes.sentinel2 import S2_BANDS, polygon_mask, sentinel2_catalog_collection
+from hpgee.recipes.sentinel2 import S2_BANDS, polygon_mask, sentinel2_catalog_collection
 
 
 def zero_mask(_sample):

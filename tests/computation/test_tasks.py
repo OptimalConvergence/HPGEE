@@ -1,6 +1,6 @@
 import json
 import pytest
-from geecomputation.tasks import submit_once
+from hpgee.accounting.tasks import submit_once
 
 
 def test_foreign_usage_cannot_submit(tmp_path):
@@ -13,7 +13,7 @@ def test_foreign_usage_cannot_submit(tmp_path):
 
 def test_actual_ee_project_must_match_before_task_access(tmp_path, monkeypatch):
     import ee
-    from geecomputation.tasks import submit_ee_export
+    from hpgee.accounting.tasks import submit_ee_export
     monkeypatch.setattr(ee.data, '_get_projects_path', lambda:'projects/other-project')
     with pytest.raises(ValueError, match='Initialized Earth Engine project'):
         submit_ee_export(None, contract={}, journal=tmp_path/'tasks.jsonl',project='demo-project',

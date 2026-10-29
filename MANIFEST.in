@@ -1,0 +1,6 @@
+include AGENTS.md
+recursive-include docs *.md *.json *.csv
+recursive-include examples *.py *.yaml *.json *.md *.csv *.geojson
+recursive-include skills *.md *.yaml *.sh
+recursive-include tests *.py *.wkt
+include tools/install_skill.py

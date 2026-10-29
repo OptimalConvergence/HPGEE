@@ -1,5 +1,5 @@
 from datetime import date
-from geecomputation.raw_download import image_date, window90, chunks, pack_limit
+from hpgee.transfer.raw_download import image_date, window90, chunks, pack_limit
 
 def test_dates_and_closed_days():
     assert image_date('B17RNK20180715_30m') == date(2018,7,15)
@@ -20,7 +20,7 @@ def test_payload_includes_all_qa_and_times():
     assert pack_limit(512,512,8,4)==4
 
 def test_native_s1_crop_stays_on_source_grid():
-    from geecomputation.raw_download import native_window
+    from hpgee.transfer.raw_download import native_window
     from shapely.geometry import box,mapping
     grid={'crsCode':'EPSG:32610','affineTransform':dict(scaleX=10,shearX=0,translateX=0,shearY=0,scaleY=-10,translateY=100),'dimensions':{'width':100,'height':100}}
     # Same-CRS geometry avoids projection ambiguity in this exact edge fixture.
@@ -34,7 +34,7 @@ def test_raw_s1_30_has_no_angle_validity_bit():
     import numpy as np
     from ee import apitestcase
     from .test_observations import evaluate_s1_graph
-    from geecomputation.raw_download import raw_image
+    from hpgee.transfer.raw_download import raw_image
     helper=apitestcase.ApiTestCase();helper.setUp()
     try:
         collection='COPERNICUS/S1_GRD'
@@ -46,7 +46,7 @@ def test_raw_s1_30_has_no_angle_validity_bit():
     finally:helper.tearDown();ee.Reset()
 
 def test_hls_native_wkt_grid_is_preserved_and_matches_same_tile_epsg():
-    from geecomputation.raw_download import grid_spec,same_hls_grid
+    from hpgee.transfer.raw_download import grid_spec, same_hls_grid
     from pyproj import CRS
     grid={'crsWkt':CRS.from_epsg(32610).to_wkt(),'affineTransform':dict(scaleX=30,scaleY=-30,translateX=499980,translateY=4500000),'dimensions':{'width':3660,'height':3660}}
     other={k:v for k,v in grid.items() if k!='crsWkt'};other['crsCode']='EPSG:32610'

@@ -1,24 +1,9 @@
 from pathlib import Path
 
-from geesampler import distributed
-from geesampler.config import AccountProfile, DistributedRunConfig, SamplerConfig
-from geesampler.distributed import (
-    DistributedSampler,
-    ProfileOutcome,
-    _profile_entry,
-    assign_records,
-    effective_workers,
-)
-from geesampler.models import (
-    AuthConfig,
-    EECUMonitorConfig,
-    PatchGrid,
-    RunConfig,
-    RunSummary,
-    SampleRecord,
-    SceneSelection,
-    TaskResult,
-)
+import hpgee.sampling.distributed as distributed
+from hpgee.sampling.config import AccountProfile, DistributedRunConfig, SamplerConfig
+from hpgee.sampling.distributed import DistributedSampler, ProfileOutcome, _profile_entry, assign_records, effective_workers
+from hpgee.core.models import AuthConfig, EECUMonitorConfig, PatchGrid, RunConfig, RunSummary, SampleRecord, SceneSelection, TaskResult
 
 
 def _profile(name: str, project: str, workers: int) -> AccountProfile:

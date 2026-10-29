@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from geesampler.models import SampleRecord
-from geesampler.recipes.mtbs import positive_pairs, post_id_date
+from hpgee.core.models import SampleRecord
+from hpgee.recipes.mtbs import positive_pairs, post_id_date
 
 
 def test_mtbs_post_id_date_and_pair_chronology():

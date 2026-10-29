@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import rasterio
 from rasterio.transform import Affine
-from geecomputation.delivery import verify_delivery, sampler_arguments, deliver_unit
-from geecomputation.planning import build_cube_plan
+from hpgee.transfer.delivery import verify_delivery, sampler_arguments, deliver_unit
+from hpgee.planning.cube import build_cube_plan
 from .test_planning import manifest,grid,support
 
 
@@ -59,7 +59,7 @@ def test_missing_and_corrupt_saved_files_do_not_pass(tmp_path):
 
 
 def test_single_scene_sampler_callback_and_selection_no_extra_source(monkeypatch):
-    from geecomputation import observations
+    import hpgee.planning.observations as observations
     called=[]
     class Image:
         def set(self,props): called.append(props);return self
@@ -72,6 +72,72 @@ def test_single_scene_sampler_callback_and_selection_no_extra_source(monkeypatch
     assert len(args['collection_builder'](args['records'][0]))==1
     assert called[-1]['system:index']==unit['scene']['system_index']
     assert args['grid_builder'](None,None)==unit['pixel_grid']
+
+
+def test_frozen_observation_uses_real_engine_without_metadata_reads(tmp_path, monkeypatch):
+    import ee
+    from ee import apitestcase
+    from pathlib import Path
+    from hpgee.core.models import EECUMonitorConfig, RunConfig
+    from hpgee.transfer.engine import DownloadEngine
+
+    helper = apitestcase.ApiTestCase(); helper.setUp()
+    try:
+        unit = plan()['units'][0]
+        payload = Path(saved(tmp_path, {'units': [unit]})['path']).read_bytes()
+        def forbidden(*args, **kwargs):
+            pytest.fail('frozen observation must not request metadata')
+        for name in ('computeValue', 'computeFeatures', 'listImages', 'getAsset', 'getInfo', 'getList'):
+            monkeypatch.setattr(ee.data, name, forbidden)
+        requests = []
+        def compute(request):
+            requests.append(request)
+            assert request['bandIds'] == BANDS
+            assert request['grid'] == unit['pixel_grid']
+            return payload
+        monkeypatch.setattr(ee.data, 'computePixels', compute)
+        engine = DownloadEngine('test-project', RunConfig(
+            tmp_path / 'hot', workers=1, retries=0, eecu=EECUMonitorConfig(enabled=False)),
+            ee_module=ee)
+        arguments = sampler_arguments(unit)
+        summary = engine.download_patch_series(**arguments, run_id='frozen')
+        assert summary.succeeded == 1 and summary.failed == 0
+        result = summary.results[0]
+        assert result.scene_id == unit['scene']['system_index']
+        assert result.scene_date == '2025-12-20T00:00:00+00:00'
+        assert result.sample_properties['original_source'] == unit['scene']['asset_id']
+        resumed = engine.download_patch_series(**arguments, run_id='frozen')
+        assert resumed.skipped == 1 and resumed.bytes_downloaded == 0
+        assert len(requests) == 1
+    finally:
+        helper.tearDown(); ee.Reset()
+
+
+def test_frozen_observation_grid_is_snapshotted_without_mutating_the_plan():
+    unit = plan()['units'][0]
+    expected = deepcopy(unit['pixel_grid'])
+    arguments = sampler_arguments(unit)
+    arguments['grid_builder'](None, None)['dimensions']['width'] = 99
+    assert unit['pixel_grid'] == expected
+    unit['pixel_grid']['dimensions']['height'] = 99
+    assert arguments['grid_builder'](None, None) == expected
+
+
+def test_frozen_observation_expression_keeps_original_source_and_grid():
+    import ee
+    from ee import apitestcase
+    helper = apitestcase.ApiTestCase(); helper.setUp()
+    try:
+        unit = plan()['units'][0]
+        arguments = sampler_arguments(unit)
+        sample = arguments['records'][0]
+        expression = arguments['collection_builder'](sample).serialize()
+        unit['scene']['system_index'] = 'different-source'
+        unit['scene']['asset_id'] = unit['scene']['collection'] + '/different-source'
+        unit['grid']['transform'][2] += 30
+        assert arguments['collection_builder'](sample).serialize() == expression
+    finally:
+        helper.tearDown(); ee.Reset()
 
 
 def test_adapter_replay_preserves_bytes_and_trial_identity(tmp_path):
@@ -150,7 +216,7 @@ def test_sampler_does_not_silently_run_different_recipe():
 
 def tag_engine(tmp_path,unit,*,prefix='123456789ab'):
     """Fake only the network boundary; use real saved bytes and sampler tags."""
-    from geesampler.engine import make_workload_tag
+    from hpgee.transfer.engine import make_workload_tag
     source=saved(tmp_path,{'units':[unit]})['path']
     class Engine:
         config=N(output_dir=tmp_path/'hot',workload_prefix=prefix)

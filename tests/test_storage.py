@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from geesampler.storage import nfs_mount, require_local_sqlite
+from hpgee.core.storage import nfs_mount, require_local_sqlite
 
 
 def test_nfs_detection_uses_longest_matching_mount():
@@ -21,6 +21,6 @@ def test_local_sqlite_allows_temporary_path(tmp_path):
 
 
 def test_nfs_sqlite_is_rejected(monkeypatch, tmp_path):
-    monkeypatch.setattr("geesampler.storage.nfs_mount", lambda *_: "/nfs-data0")
+    monkeypatch.setattr("hpgee.core.storage.nfs_mount", lambda *_: "/nfs-data0")
     with pytest.raises(RuntimeError, match="on NFS mount"):
         require_local_sqlite(tmp_path / "queue.sqlite")

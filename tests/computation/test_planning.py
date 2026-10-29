@@ -2,7 +2,7 @@ from copy import deepcopy
 from datetime import datetime,timezone
 import pytest
 
-from geecomputation.planning import build_cube_plan, select_support
+from hpgee.planning.cube import build_cube_plan, select_support
 
 
 def scene(index='a',time='2025-12-20T00:00:00Z'):

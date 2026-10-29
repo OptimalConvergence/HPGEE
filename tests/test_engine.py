@@ -7,17 +7,10 @@ import numpy as np
 import rasterio
 from rasterio.io import MemoryFile
 
-from geesampler.catalog import SceneRecord
-from geesampler.engine import DownloadEngine, make_workload_tag, redact_error
-from geesampler.models import (
-    EECUMonitorConfig,
-    PatchGrid,
-    RunConfig,
-    SampleRecord,
-    SceneSelection,
-    TaskResult,
-)
-from geesampler.monitoring import EECUSnapshot, SequenceEECUReader
+from hpgee.catalog.catalog import SceneRecord
+from hpgee.transfer.engine import DownloadEngine, make_workload_tag, redact_error
+from hpgee.core.models import EECUMonitorConfig, PatchGrid, RunConfig, SampleRecord, SceneSelection, TaskResult
+from hpgee.accounting.sampling import EECUSnapshot, SequenceEECUReader
 
 
 class FakeImage:

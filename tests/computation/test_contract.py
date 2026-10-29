@@ -6,10 +6,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from geecomputation.config import Config, utc_datetime
-from geecomputation.features import clear_fmask, spectral_indices, min_nbr2_pixels, rf_features
-from geecomputation.rf import validate_samples
-from geecomputation.recipe import manifest
+from hpgee.workflows.config import Config, utc_datetime
+from hpgee.compute.features import clear_fmask, spectral_indices, min_nbr2_pixels, rf_features
+from hpgee.compute.rf import validate_samples
+from hpgee.workflows.recipe import manifest
 
 
 def configuration():
@@ -71,7 +71,7 @@ def test_rf_delta_sign_and_missing_optional_modalities():
 
 
 def row(label, split='train', event='one', support='one', source='manual'):
-    from geecomputation.features import RF_BANDS
+    from hpgee.compute.features import RF_BANDS
     return dict(label=label, split=split, event_id=event, support_id=support,
                 label_source=source, label_eligible=True, **dict.fromkeys(RF_BANDS, .1))
 
@@ -95,7 +95,7 @@ def test_manifest_identifies_scene_key_scale_and_exact_grid():
 
 
 def test_frozen_manifest_requires_files_and_matching_groups(tmp_path):
-    from geecomputation.rf import load_split_manifest
+    from hpgee.compute.rf import load_split_manifest
     path=tmp_path/'split.json'
     with pytest.raises(FileNotFoundError): load_split_manifest(path)
     path.write_text(json.dumps({'events':{'one':'train'},'supports':{'one':'train'}}))
@@ -140,7 +140,7 @@ def test_native_extent_filter_is_explicit_not_an_assumed_global_default():
 
 
 def test_local_training_source_freezes_sha_and_rejects_ambiguous_or_large_inputs(tmp_path):
-    from geecomputation.rf import sample_source_info
+    from hpgee.compute.rf import sample_source_info
     path=tmp_path/'samples.json'
     payload={'type':'FeatureCollection','features':[{'type':'Feature','geometry':None,'properties':row(0)},
                                                     {'type':'Feature','geometry':None,'properties':row(1)}]}

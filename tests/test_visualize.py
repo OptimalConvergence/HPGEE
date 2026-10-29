@@ -4,7 +4,7 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
-from geesampler.visualize import plot_benchmark, plot_sample_pair
+from hpgee.reporting.visualize import plot_benchmark, plot_sample_pair
 
 
 def test_static_validation_and_benchmark_figures(tmp_path):
