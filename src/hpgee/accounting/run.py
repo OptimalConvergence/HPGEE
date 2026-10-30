@@ -9,7 +9,7 @@ from hpgee.accounting.sampling import CloudEECUReader
 
 
 class UsageRun:
-    def __init__(self,directory,*,project,tag_prefix,credentials,poll_seconds=120):
+    def __init__(self,directory,*,project,tag_prefix,credentials,poll_seconds=120,client=None,start=None):
         self.credentials=credentials
         self.directory=Path(directory);self.directory.mkdir(parents=True,exist_ok=True)
         path=self.directory/'usage-identity.json'
@@ -18,9 +18,9 @@ class UsageRun:
             saved=json.loads(path.read_text())
             if any(saved[k]!=v for k,v in identity.items()):raise ValueError('Usage run identity mismatch')
         else:
-            saved=dict(identity,start=datetime.now(timezone.utc).isoformat())
+            saved=dict(identity,start=start or datetime.now(timezone.utc).isoformat())
             temp=path.with_suffix('.tmp');temp.write_text(json.dumps(saved));temp.replace(path)
-        self.reader=CloudEECUReader(project,tag_prefix,start=saved['start'],credentials=credentials,tag_prefix=True)
+        self.reader=CloudEECUReader(project,tag_prefix,start=saved['start'],credentials=credentials,tag_prefix=True,client=client)
         self.interval=poll_seconds;self.stop_event=threading.Event();self.lock=threading.Lock();self.thread=None
 
     def append(self,name,row):

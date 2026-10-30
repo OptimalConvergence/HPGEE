@@ -47,6 +47,7 @@ src/hpgee/
   compute/       Lazy feature graphs, RF and scientific recipes
   workflows/     Product contracts and detection orchestration
   transfer/      Shared download engine and frozen observation/product adapters
+  acquisition/   Frozen-target recipes, quality cells, delivery and host results
   accounting/    Shared Monitoring reader, usage ledgers, tasks and quotas
   reporting/     Progress, resources, events and visualization
   recipes/       Source collection callbacks
