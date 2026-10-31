@@ -58,6 +58,15 @@ def full_image(ee, task):
             else s1_mosaic_image(ee, task["sources"], grid)
         )
     else:
+        if task.get("simplify_graph") and len(task["sources"]) == 1:
+            raw = raw_image(task["sources"][0]["scene"], grid, "hls-int16")
+            bits = raw.select("source_valid_bits").bitwiseAnd(127)
+            raw = raw.unmask(0, False)
+            # Keep the original blend and fixed grid; only single-item mosaics
+            # are omitted. Real pixel equality is a required experiment gate.
+            return raw.updateMask(bits.neq(0)).blend(
+                raw.updateMask(bits.eq(127))
+            ).setDefaultProjection(grid["crsCode"], affine(grid))
         fallback = []
         complete = []
         for source in task["sources"]:
@@ -93,10 +102,15 @@ def selected_image(ee, task, request):
     return image.toInt16()
 
 
-def output_bands(sensor):
+def output_bands(sensor, *, omit_fmask=False):
     from .recipes import recipe
 
-    return recipe(sensor)["bands"]
+    bands = recipe(sensor)["bands"]
+    if omit_fmask:
+        if sensor not in ("L30", "S30"):
+            raise ValueError("Only HLS outputs have an optional Fmask")
+        return [b for b in bands if b != "Fmask"]
+    return bands
 
 
 def request_body(ee, task, request, tag):
@@ -107,7 +121,7 @@ def request_body(ee, task, request, tag):
         dict(
             expression=ee.serializer.encode(image),
             grid=request["grid"],
-            bandIds=output_bands(task["sensor"]),
+            bandIds=output_bands(task["sensor"], omit_fmask=request.get("omit_fmask", False)),
             fileFormat="GEO_TIFF",
             workloadTag=tag,
         ),

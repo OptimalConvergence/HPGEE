@@ -15,24 +15,29 @@ def validate_array(values, request):
     mass_error = None
     values = np.asarray(values)
     sensor = request["sensor"]
+    omit_fmask = request.get("omit_fmask", False)
+    if omit_fmask and sensor not in ("L30", "S30"):
+        raise ValueError("Only HLS outputs have an optional Fmask")
     h, w = (request["grid"]["dimensions"][k] for k in ("height", "width"))
     if values.ndim != 3 or values.shape[1:] != (h, w):
         raise ValueError("Response shape differs from request")
     if sensor in ("L30", "S30"):
-        if values.shape[0] != 8 or values.dtype != np.int16:
-            raise ValueError("Eight Int16 HLS bands required")
-        qa = values[6]
-        raw_bits = values[7]
+        if values.shape[0] != (7 if omit_fmask else 8) or values.dtype != np.int16:
+            raise ValueError("HLS Int16 band layout differs from the request")
+        raw_bits = values[-1]
         if np.any((raw_bits < 0) | (raw_bits > 255)):
             raise ValueError("Invalid HLS source bits")
         bits = raw_bits.astype("uint8")
         if np.any(bits & 128):
             raise ValueError("HLS Int16 overflow flag is set")
-        qa_valid = (bits & 64) != 0
-        if np.any((qa[qa_valid] < 0) | (qa[qa_valid] > 255)):
-            raise ValueError("Invalid Fmask")
         valid = (bits & 127) == 127
-        cloud = valid & ((qa & 2) != 0)
+        cloud = None
+        if not omit_fmask:
+            qa = values[6]
+            qa_valid = (bits & 64) != 0
+            if np.any((qa[qa_valid] < 0) | (qa[qa_valid] > 255)):
+                raise ValueError("Invalid Fmask")
+            cloud = valid & ((qa & 2) != 0)
     elif sensor == "S1":
         if values.shape[0] != 4 or values.dtype != np.float32:
             raise ValueError("Four Float32 S1 bands required")
@@ -104,7 +109,13 @@ def validate_array(values, request):
         window = np.s_[y : y + height, x : x + width]
         selected[window] = True
         v = int(valid[window].sum())
-        c = int(cloud[window].sum())
+        if omit_fmask:
+            c = cell.get("cloud")
+            if (type(c) is not int or cell.get("valid") is None
+                or not 0 <= c <= cell["valid"] <= height * width):
+                raise ValueError("Missing or invalid cached native cloud count")
+        else:
+            c = int(cloud[window].sum())
         if cell.get("valid") is not None and (v, c) != (cell["valid"], cell["cloud"]):
             raise ValueError("Delivered source/cloud support differs from frozen quality counts")
         vc += v
@@ -129,6 +140,7 @@ def validate_array(values, request):
         quality_valid_pixels=qv,
         quality_clear_pixels=qv - qc,
         probability_mass_max_error=mass_error,
+        **({"cloud_evidence": "frozen_native_cache"} if omit_fmask else {}),
     )
 
 
@@ -139,7 +151,8 @@ def verified(request, destination):
         return None
     row = json.loads(path.read_text())
     data = root / (request["id"] + ".tif")
-    if row.get("validator") != "fixed-land-grid-v3-recipe-v1":
+    validator = "fixed-land-grid-v3-recipe-v1" + ("-hls7" if request.get("omit_fmask") else "")
+    if row.get("validator") != validator:
         return None
     if (
         row["request_id"] != request["id"]
@@ -171,7 +184,7 @@ def publish(payload, request, destination):
             ):
                 raise ValueError("Response grid differs from frozen request")
             if any(dataset.descriptions) and list(dataset.descriptions) != output_bands(
-                request["sensor"]
+                request["sensor"], omit_fmask=request.get("omit_fmask", False)
             ):
                 raise ValueError("Response band order differs from frozen request")
             row = validate_array(dataset.read(), request)
@@ -190,7 +203,7 @@ def publish(payload, request, destination):
         row.update(
             request_id=request["id"],
             encoding=LAYOUT,
-            validator="fixed-land-grid-v3-recipe-v1",
+            validator="fixed-land-grid-v3-recipe-v1" + ("-hls7" if request.get("omit_fmask") else ""),
             sha256=hashlib.sha256(payload).hexdigest(),
             bytes=len(payload),
         )

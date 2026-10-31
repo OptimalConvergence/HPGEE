@@ -68,6 +68,9 @@ def execute(
     min_free_bytes=0,
     max_bytes=None,
     ownership_pixels=None,
+    task_owners=None,
+    case_options=None,
+    omit_fmask=False,
 ):
     began = time.monotonic()
     epoch = session_epoch if session_epoch is not None else time.time()
@@ -107,6 +110,16 @@ def execute(
     )
     if ownership_pixels != 1024:
         settings["ownership_pixels"] = ownership_pixels
+    if task_owners is not None:
+        if set(task_owners) != set(store.index):
+            raise ValueError("Task ownership must cover the complete frozen target")
+        if any(type(v) is not int or not 0 <= v < hosts for v in task_owners.values()):
+            raise ValueError("Invalid declared task owner")
+        settings["task_owners"] = digest(task_owners)
+    if case_options:
+        settings["case_options"] = case_options
+    if omit_fmask:
+        settings["omit_fmask"] = True
     signature = digest({k: v for k, v in settings.items() if k != "rank"})
     with (output / "transfer.lock").open("a") as lock, ExitStack() as stack:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -125,7 +138,8 @@ def execute(
 
         @functools.lru_cache(maxsize=16)
         def packed(task_id):
-            return {r["id"]: r for r in requests_for_task(store[task_id], tile)}
+            return {r["id"]: r for r in requests_for_task(store[task_id], tile,
+                omit_fmask=omit_fmask and store[task_id]["sensor"] in ("L30", "S30"))}
 
         index = {}
         groups = {sensor: [] for sensor in ("S30", "L30", "S1", "S2", "DW")}
@@ -133,7 +147,7 @@ def execute(
             for uid, request in packed(task_id).items():
                 if request["sensor"] not in groups:
                     raise ValueError("Unknown target sensor")
-                if request_owner(request, hosts, macro_pixels=ownership_pixels) == rank:
+                if request_owner(request, hosts, macro_pixels=ownership_pixels, task_owners=task_owners) == rank:
                     index[uid] = (task_id, len(request["cells"]))
                     groups[request["sensor"]].append(uid)
 

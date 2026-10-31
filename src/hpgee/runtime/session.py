@@ -40,13 +40,14 @@ def initialize(
     http_limit=40,
     timeout=60,
     observer=None,
+    transport_factory=None,
 ):
     import ee
     from google_auth_httplib2 import Request
 
     if endpoint not in ("standard", "high-volume"):
         raise ValueError("Unknown EE endpoint")
-    transport = BoundedTransport(
+    transport = (transport_factory or BoundedTransport)(
         pool_size=http_limit,
         timeout=timeout,
         observer=observer,

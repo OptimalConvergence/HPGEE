@@ -110,33 +110,22 @@ class BoundedTransport:
                     request_file.write_bytes(body.encode() if isinstance(body, str) else body)
                     request_file.chmod(0o600)
                     config.append(f'data-binary = {quote("@" + str(request_file))}')
-                command = ['curl', '--disable', '--silent', '--show-error', '--compressed',
-                           '--connect-timeout', str(min(10, deadline)), '--max-time', str(deadline),
-                           '--dump-header', str(root / 'headers'), '--output', str(root / 'body'),
-                           '--write-out', '{"http_code":"%{http_code}","time_starttransfer":%{time_starttransfer},'
-                           '"time_total":%{time_total}}', '--config', '-']
-                process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                try:
-                    try:
-                        stdout, _ = process.communicate(('\n'.join(config) + '\n').encode(), timeout=deadline + 2)
-                    except subprocess.TimeoutExpired:
-                        raise Timeout(f'HTTP wall-clock deadline exceeded ({deadline:.1f}s)') from None
-                finally:
-                    if process.poll() is None:
-                        process.kill()
-                        process.communicate()
-                metrics = json.loads(stdout or b'{}')
+                returncode, metrics = self._transfer(root, config, deadline)
                 event['status'] = int(metrics.get('http_code') or metrics.get('response_code') or 0) or None
                 network_error = event['status'] in (502, 503, 504)
                 if network_error and lease is not None and identity:
                     with self.lock:
                         self.failed_routes.setdefault(identity, set()).add(lease.name)
+                event.update(new_connections=metrics.get('num_connects'),
+                             connect_seconds=metrics.get('time_connect'),
+                             tls_seconds=metrics.get('time_appconnect'),
+                             wire_response_bytes=metrics.get('size_download'))
                 event['response_header_seconds'] = metrics.get('time_starttransfer')
                 event['response_body_seconds'] = max(0, metrics.get('time_total', 0) - (metrics.get('time_starttransfer') or 0))
-                if process.returncode:
+                if returncode:
                     event['partial_response_bytes'] = (root / 'body').stat().st_size if (root / 'body').exists() else 0
-                    error_type = Timeout if process.returncode == 28 else SSLError if process.returncode in (35, 51, 58, 60) else ConnectionError
-                    raise error_type(f'HTTP transport failed (curl exit {process.returncode}; limit {deadline:.1f}s)')
+                    error_type = Timeout if returncode == 28 else SSLError if returncode in (35, 51, 58, 60) else ConnectionError
+                    raise error_type(f'HTTP transport failed (curl exit {returncode}; limit {deadline:.1f}s)')
                 if event['status'] is None:
                     raise ConnectionError('HTTP response status is missing from curl metrics')
                 payload = (root / 'body').read_bytes()
@@ -170,6 +159,25 @@ class BoundedTransport:
                     seconds=elapsed, pixels=pixels)
             if self.observer:
                 self.observer(dict(event, phase='finished', elapsed_seconds=elapsed))
+
+    def _transfer(self, root, config, deadline):
+        command = ['curl', '--disable', '--silent', '--show-error', '--compressed',
+                   '--connect-timeout', str(min(10, deadline)), '--max-time', str(deadline),
+                   '--dump-header', str(root / 'headers'), '--output', str(root / 'body'),
+                   '--write-out', '{"http_code":"%{http_code}","time_starttransfer":%{time_starttransfer},'
+                   '"time_total":%{time_total},"num_connects":%{num_connects},"time_connect":%{time_connect},"time_appconnect":%{time_appconnect},"size_download":%{size_download}}', '--config', '-']
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            try:
+                stdout, _ = process.communicate(('\n'.join(config) + '\n').encode(), timeout=deadline + 2)
+            except subprocess.TimeoutExpired:
+                raise Timeout(f'HTTP wall-clock deadline exceeded ({deadline:.1f}s)') from None
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+        metrics = json.loads(stdout or b'{}')
+        return process.returncode, metrics
 
     def __deepcopy__(self, memo):
         return self

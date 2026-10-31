@@ -62,7 +62,12 @@ def freeze_task(task, quality):
     return task
 
 
-def requests_for_task(task, size):
+def requests_for_task(task, size, *, omit_fmask=False):
+    if omit_fmask and (
+        task["sensor"] not in ("L30", "S30") or task.get("selection") != "native"
+        or any(c.get("valid") is None or c.get("cloud") is None for c in task["cells"])
+    ):
+        raise ValueError("Omitting Fmask requires frozen native HLS quality counts")
     if (
         task.get("recipe_version", recipe(task["sensor"])["version"])
         != recipe(task["sensor"])["version"]
@@ -78,7 +83,7 @@ def requests_for_task(task, size):
         from hpgee.transfer.raw_download import pack_limit
 
         r = recipe(task["sensor"])
-        pack_limit(w, h, len(r["bands"]), 1, itemsize=np.dtype(r["dtype"]).itemsize)
+        pack_limit(w, h, len(r["bands"]) - int(omit_fmask), 1, itemsize=np.dtype(r["dtype"]).itemsize)
         uid = digest(
             dict(
                 task=task["id"],
@@ -87,6 +92,7 @@ def requests_for_task(task, size):
                 row=pack["row"],
                 col=pack["col"],
                 cells=[c["id"] for c in pack["cells"]],
+                **({"omit_fmask": True} if omit_fmask else {}),
             )
         )
         result.append(
@@ -96,6 +102,7 @@ def requests_for_task(task, size):
                 task=task["id"],
                 grid=grid,
                 sensor=task["sensor"],
+                **({"omit_fmask": True} if omit_fmask else {}),
                 observation=task["observation"],
                 region=task["region"],
                 **({"cell_pixels": unit} if unit != 128 else {}),
@@ -104,9 +111,14 @@ def requests_for_task(task, size):
     return result
 
 
-def request_owner(request, hosts, *, macro_pixels=1024):
+def request_owner(request, hosts, *, macro_pixels=1024, task_owners=None):
     if hosts < 1:
         raise ValueError("At least one host required")
+    if task_owners is not None:
+        owner = task_owners[request["task"]]
+        if type(owner) is not int or not 0 <= owner < hosts:
+            raise ValueError("Declared task owner must be a host rank")
+        return owner
     if macro_pixels < 1 or macro_pixels % request["size"]:
         raise ValueError("Host macrocell must be divisible by request size")
     unit = request.get("cell_pixels", 128)
