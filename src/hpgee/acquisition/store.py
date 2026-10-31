@@ -8,12 +8,14 @@ import os
 from pathlib import Path
 import tempfile
 from .manifest import digest, task_identity
+from .quality import cell_pixels
 
 
 def derived_cell(task, cell):
     row, col = cell["row"], cell["col"]
     grid = task["grid"]["dimensions"]
-    h, w = min(128, grid["height"] - row * 128), min(128, grid["width"] - col * 128)
+    size = cell_pixels(task)
+    h, w = min(size, grid["height"] - row * size), min(size, grid["width"] - col * size)
     if min(row, col) < 0 or min(h, w) <= 0:
         raise ValueError("Cell outside the frozen grid")
     return dict(

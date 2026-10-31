@@ -4,7 +4,7 @@ import hashlib
 import json
 from .ee_quality import cell_grid
 from .target import pack_cells
-from .quality import POLICY
+from .quality import cell_pixels, policy_for
 from .recipes import recipe
 
 
@@ -25,7 +25,7 @@ def task_identity(task):
             owner=task.get("owner_geometry"),
             land=task.get("land_asset"),
             recipe=task.get("recipe_version") or recipe(task["sensor"])["version"],
-            policy=POLICY,
+            policy=policy_for(task),
             mask_version="fixed-land-grid-v3",
         )
     )
@@ -70,9 +70,10 @@ def requests_for_task(task, size):
         raise ValueError("Frozen recipe differs from current image formula; prepare a new target")
     result = []
     height, width = (task["grid"]["dimensions"][k] for k in ("height", "width"))
-    for pack in pack_cells(task["cells"], size):
-        h, w = min(size, height - pack["row"] * 128), min(size, width - pack["col"] * 128)
-        grid = cell_grid(task["grid"], pack["row"], pack["col"], h, w)
+    unit = cell_pixels(task)
+    for pack in pack_cells(task["cells"], size, cell_pixels=unit):
+        h, w = min(size, height - pack["row"] * unit), min(size, width - pack["col"] * unit)
+        grid = cell_grid(task["grid"], pack["row"], pack["col"], h, w, cell_pixels=unit)
         import numpy as np
         from hpgee.transfer.raw_download import pack_limit
 
@@ -97,17 +98,20 @@ def requests_for_task(task, size):
                 sensor=task["sensor"],
                 observation=task["observation"],
                 region=task["region"],
+                **({"cell_pixels": unit} if unit != 128 else {}),
             )
         )
     return result
 
 
-def request_owner(request, hosts):
+def request_owner(request, hosts, *, macro_pixels=1024):
     if hosts < 1:
         raise ValueError("At least one host required")
-    # Every allowed transport size divides this 1024px macrocell. Consequently
-    # a fixed logical cell stays on the same host when request packing changes.
-    key = dict(task=request["task"], row=request["row"] // 8, col=request["col"] // 8)
+    if macro_pixels < 1 or macro_pixels % request["size"]:
+        raise ValueError("Host macrocell must be divisible by request size")
+    unit = request.get("cell_pixels", 128)
+    key = dict(task=request["task"], row=request["row"] * unit // macro_pixels,
+               col=request["col"] * unit // macro_pixels)
     return int(digest(key)[:16], 16) % hosts
 
 
@@ -117,10 +121,10 @@ def freeze_unfiltered(task):
 
     task = dict(task, selection="post")
     quality = dict(
-        key=digest(dict(mode="post", policy=POLICY, mask="fixed-land-grid-v3")),
+        key=digest(dict(mode="post", policy=policy_for(task), mask="fixed-land-grid-v3")),
         rows=[
             dict(c, total=c["height"] * c["width"], valid=None, cloud=None, land=0, keep=True)
-            for c in cells(task["grid"])
+            for c in cells(task["grid"], cell_pixels(task))
         ],
     )
     return freeze_task(task, quality)

@@ -6,7 +6,7 @@ import time
 from .catalog import atomic_json, ownership_predecessors
 from .ee_quality import affine, collect, geometry
 from .manifest import digest, freeze_task, freeze_unfiltered
-from .quality import POLICY
+from .quality import POLICY, policy_for
 from .recipes import recipe
 from .store import write_manifest
 
@@ -84,7 +84,7 @@ def prepare_tasks(ee, tasks, path, cache, *, selection="post", project, quality_
         expected_task_ids=[freeze_task(t, dict(key="identity", rows=[]))["id"] for t in tasks],
         sensors=list(dict.fromkeys(t["sensor"] for t in tasks)),
         selection=selection,
-        policy=POLICY,
+        policy=policy_for(tasks[0]) if tasks else POLICY,
         scope="explicit frozen observations; unknown land area until separately measured",
     )
     report = write_manifest(path, header, frozen())

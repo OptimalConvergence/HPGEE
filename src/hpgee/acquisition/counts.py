@@ -4,21 +4,21 @@ import json
 from .quality import decide
 
 
-def count_grid(grid):
+def count_grid(grid, *, cell_pixels=128):
     out = json.loads(json.dumps(grid))
     a = out["affineTransform"]
-    out["dimensions"] = {k: (grid["dimensions"][k] + 127) // 128 for k in ("width", "height")}
-    a["scaleX"] *= 128
-    a["scaleY"] *= 128
+    out["dimensions"] = {k: (grid["dimensions"][k] + (cell_pixels - 1)) // cell_pixels for k in ("width", "height")}
+    a["scaleX"] *= cell_pixels
+    a["scaleY"] *= cell_pixels
     for name in ("shearX", "shearY"):
         if name in a:
-            a[name] *= 128
+            a[name] *= cell_pixels
     return out
 
 
-def rows_from_array(array, grid, sensor, scale):
+def rows_from_array(array, grid, sensor, scale, *, cell_pixels=128):
     height, width = (grid["dimensions"][k] for k in ("height", "width"))
-    expected = ((height + 127) // 128, (width + 127) // 128)
+    expected = ((height + (cell_pixels - 1)) // cell_pixels, (width + (cell_pixels - 1)) // cell_pixels)
     if array.shape != expected or not {"valid", "cloud", "shadow", "land"} <= set(
         array.dtype.names or ()
     ):
@@ -26,7 +26,7 @@ def rows_from_array(array, grid, sensor, scale):
     rows = []
     for y in range(expected[0]):
         for x in range(expected[1]):
-            h, w = min(128, height - y * 128), min(128, width - x * 128)
+            h, w = min(cell_pixels, height - y * cell_pixels), min(cell_pixels, width - x * cell_pixels)
             n = h * w
             valid = min(n, max(0, int(round(float(array["valid"][y, x])))))
             cloud = min(valid, max(0, int(round(float(array["cloud"][y, x])))))

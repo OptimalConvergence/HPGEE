@@ -3,6 +3,7 @@
 from contextlib import ExitStack
 import fcntl
 import functools
+from math import lcm
 import json
 from pathlib import Path
 import threading
@@ -66,10 +67,14 @@ def execute(
     tag_prefix=None,
     min_free_bytes=0,
     max_bytes=None,
+    ownership_pixels=None,
 ):
     began = time.monotonic()
     epoch = session_epoch if session_epoch is not None else time.time()
     total_workers = total_workers or workers
+    ownership_pixels = ownership_pixels or lcm(1024, tile)
+    if ownership_pixels % tile:
+        raise ValueError("Host macrocell must be divisible by request size")
     if (
         endpoint not in ("standard", "high-volume")
         or request_mode not in ("lazy", "eager")
@@ -100,6 +105,8 @@ def execute(
         hosts=hosts,
         rank=rank,
     )
+    if ownership_pixels != 1024:
+        settings["ownership_pixels"] = ownership_pixels
     signature = digest({k: v for k, v in settings.items() if k != "rank"})
     with (output / "transfer.lock").open("a") as lock, ExitStack() as stack:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -126,7 +133,7 @@ def execute(
             for uid, request in packed(task_id).items():
                 if request["sensor"] not in groups:
                     raise ValueError("Unknown target sensor")
-                if request_owner(request, hosts) == rank:
+                if request_owner(request, hosts, macro_pixels=ownership_pixels) == rank:
                     index[uid] = (task_id, len(request["cells"]))
                     groups[request["sensor"]].append(uid)
 

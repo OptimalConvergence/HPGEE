@@ -28,4 +28,4 @@ def test_request_packing_preserves_exact_fixed_quality_cells():
         assert sorted(c["id"] for r in requests for c in r["cells"]) == ["a", "b", "c"]
         assert all(r["size"] == size for r in requests)
     with pytest.raises(ValueError):
-        pack_cells(cells, 768)
+        pack_cells(cells, 640)

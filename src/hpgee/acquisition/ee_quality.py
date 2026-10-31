@@ -3,7 +3,7 @@
 import json
 import time
 from pathlib import Path
-from .quality import POLICY, cache_key, compare_decisions
+from .quality import cache_key, compare_decisions, cell_pixels as quality_cell_pixels, policy_for
 
 
 def affine(grid):
@@ -18,11 +18,11 @@ def affine(grid):
     ]
 
 
-def cell_grid(grid, row, col, height=128, width=128):
+def cell_grid(grid, row, col, height=128, width=128, *, cell_pixels=128):
     result = json.loads(json.dumps(grid))
     a = result["affineTransform"]
-    x = col * 128
-    y = row * 128
+    x = col * cell_pixels
+    y = row * cell_pixels
     a["translateX"] += x * a["scaleX"] + y * a.get("shearX", 0)
     a["translateY"] += x * a.get("shearY", 0) + y * a["scaleY"]
     result["dimensions"] = dict(width=width, height=height)
@@ -39,12 +39,12 @@ def geometry(ee, grid):
     return ee.Geometry.Polygon([corners], proj=grid["crsCode"], geodesic=False)
 
 
-def cells(grid):
+def cells(grid, cell_pixels=128):
     width, height = (grid["dimensions"][k] for k in ("width", "height"))
     return [
-        dict(row=y // 128, col=x // 128, height=min(128, height - y), width=min(128, width - x))
-        for y in range(0, height, 128)
-        for x in range(0, width, 128)
+        dict(row=y // cell_pixels, col=x // cell_pixels, height=min(cell_pixels, height - y), width=min(cell_pixels, width - x))
+        for y in range(0, height, cell_pixels)
+        for x in range(0, width, cell_pixels)
     ]
 
 
@@ -149,7 +149,9 @@ def mask_image(ee, task, scale):
 
 def collect(ee, task, scale, cache_dir):
     ownership = dict(owner_geometry=task["owner_geometry"]) if task.get("owner_geometry") else {}
+    size = quality_cell_pixels(task)
     key = cache_key(
+        policy=policy_for(task),
         sources=task["sources"],
         grid=task["grid"],
         sensor=task["sensor"],
@@ -173,19 +175,19 @@ def collect(ee, task, scale, cache_dir):
     transform[0] = scale
     transform[4] = -scale
     # Categorical flags have already been decoded into booleans. Aligned area
-    # fractions multiplied by 128**2 recover native 30m pixel-equivalent counts.
+    # fractions multiplied by cell_pixels**2 recover native 30m pixel-equivalent counts.
     image = mask_image(ee, task, scale).toDouble().clip(geometry(ee, grid)).unmask(0, False)
     image = image.reproject(grid["crsCode"], transform)
     counts = (
         image.reduceResolution(ee.Reducer.sum(), maxPixels=65536, bestEffort=False)
-        .reproject(grid["crsCode"], affine(count_grid(grid)))
-        .multiply(128**2)
+        .reproject(grid["crsCode"], affine(count_grid(grid, cell_pixels=size)))
+        .multiply(size**2)
         .round()
         .toInt32()
     )
     request = dict(
         expression=counts,
-        grid=count_grid(grid),
+        grid=count_grid(grid, cell_pixels=size),
         bandIds=["valid", "cloud", "shadow", "land"],
         fileFormat="NUMPY_NDARRAY",
     )
@@ -196,13 +198,13 @@ def collect(ee, task, scale, cache_dir):
     array = retry_read(
         lambda: ee.data.computePixels(request), attempts=2, base_seconds=1, cap_seconds=1
     )
-    rows = rows_from_array(array, grid, task["sensor"], scale)
+    rows = rows_from_array(array, grid, task["sensor"], scale, cell_pixels=size)
     data = dict(
         key=key,
         scale=scale,
         seconds=time.monotonic() - began,
         rows=rows,
-        policy=POLICY,
+        policy=policy_for(task),
         cache_hit=False,
         scope="exact native counts"
         if scale == abs(affine(grid)[0])

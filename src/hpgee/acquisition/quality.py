@@ -15,8 +15,19 @@ POLICY = dict(
 )
 
 
-def cache_key(*, sources, grid, sensor, scale, **extra):
-    body = dict(sources=sources, grid=grid, sensor=sensor, scale=scale, policy=POLICY, **extra)
+def cell_pixels(task):
+    value = task.get("quality_cell_pixels", POLICY["cell_pixels"])
+    if type(value) is not int or value not in (128, 256):
+        raise ValueError("Quality cell must be128or256native pixels")
+    return value
+
+
+def policy_for(task):
+    return dict(POLICY, cell_pixels=cell_pixels(task))
+
+
+def cache_key(*, sources, grid, sensor, scale, policy=None, **extra):
+    body = dict(sources=sources, grid=grid, sensor=sensor, scale=scale, policy=POLICY if policy is None else policy, **extra)
     return hashlib.sha256(
         json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()

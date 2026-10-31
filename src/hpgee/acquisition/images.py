@@ -1,6 +1,7 @@
 """Scientific images and selected-cell masks; transport packing changes no targets."""
 
 from .ee_quality import affine, geometry, cell_grid, domain_mask
+from .quality import cell_pixels
 
 
 def s1_mosaic_image(ee, sources, grid):
@@ -76,7 +77,8 @@ def selected_image(ee, task, request):
     features = [
         ee.Feature(
             geometry(
-                ee, cell_grid(task["grid"], cell["row"], cell["col"], cell["height"], cell["width"])
+                ee, cell_grid(task["grid"], cell["row"], cell["col"], cell["height"], cell["width"],
+                              cell_pixels=cell_pixels(task))
             )
         )
         for cell in request["cells"]

@@ -31,11 +31,11 @@ def observation_key(source, sensor):
     )
 
 
-def pack_cells(cells, size):
-    if size not in (128, 256, 512, 1024):
-        raise ValueError("Request size must be 128/256/512/1024")
+def pack_cells(cells, size, *, cell_pixels=128):
+    if size not in (128, 256, 512, 768, 1024) or cell_pixels not in (128, 256) or size % cell_pixels:
+        raise ValueError("Request size must be128/256/512/768/1024and divisible by quality cell")
     grouped = {}
-    step = size // 128
+    step = size // cell_pixels
     for cell in cells:
         origin = (cell["row"] // step * step, cell["col"] // step * step)
         grouped.setdefault(origin, []).append(cell)

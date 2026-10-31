@@ -92,9 +92,12 @@ def validate_array(values, request):
     rejected = []
     from .quality import decide
 
+    size = request.get("cell_pixels", 128)
+    if size not in (128, 256):
+        raise ValueError("Unknown frozen quality cell size")
     for cell in request["cells"]:
-        y = (cell["row"] - request["row"]) * 128
-        x = (cell["col"] - request["col"]) * 128
+        y = (cell["row"] - request["row"]) * size
+        x = (cell["col"] - request["col"]) * size
         height, width = cell["height"], cell["width"]
         if min(y, x) < 0 or y + height > h or x + width > w:
             raise ValueError("Target cell outside request")
